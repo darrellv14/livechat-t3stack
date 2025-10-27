@@ -20,6 +20,7 @@ export const chatRouter = createTRPCRouter({
       orderBy: {
         name: "asc",
       },
+      cacheStrategy: { ttl: 60, swr: 300 }, // Cache for 60s, stale-while-revalidate for 5 minutes
     });
     return users;
   }),
