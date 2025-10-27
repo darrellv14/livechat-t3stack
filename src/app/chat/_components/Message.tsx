@@ -1,45 +1,189 @@
 "use client";
 
-import type { Message as MessageType, User } from "@prisma/client";
-import type { Session } from "next-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { api } from "@/trpc/react";
+import type { Message as MessageType, User } from "@prisma/client";
+import { Check, Edit2, MoreVertical, Trash2, X } from "lucide-react";
+import type { Session } from "next-auth";
+import { useState } from "react";
+import { toast } from "sonner";
 
 interface MessageProps {
-  message: MessageType & { user: User };
+  message: MessageType & { user: User; isEdited?: boolean };
   session: Session;
+  onMessageUpdated?: () => void;
 }
 
-export function Message({ message, session }: MessageProps) {
+export function Message({ message, session, onMessageUpdated }: MessageProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.text);
   const isCurrentUser = message.userId === session.user.id;
+  const utils = api.useUtils();
+
+  const editMutation = api.chat.editMessage.useMutation({
+    onSuccess: () => {
+      toast.success("Message edited");
+      setIsEditing(false);
+      void utils.chat.getMessages.invalidate();
+      onMessageUpdated?.();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteMutation = api.chat.deleteMessage.useMutation({
+    onSuccess: () => {
+      toast.success("Message deleted");
+      void utils.chat.getMessages.invalidate();
+      onMessageUpdated?.();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleEdit = () => {
+    if (editText.trim() && editText !== message.text) {
+      editMutation.mutate({ messageId: message.id, text: editText.trim() });
+    } else {
+      setIsEditing(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (confirm("Are you sure you want to delete this message?")) {
+      deleteMutation.mutate({ messageId: message.id });
+    }
+  };
+
+  const canEditOrDelete = () => {
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    return message.createdAt > oneMinuteAgo;
+  };
 
   return (
     <div
       className={cn(
-        "flex items-end space-x-2",
-        isCurrentUser ? "justify-end" : "justify-start"
+        "flex items-end gap-2",
+        isCurrentUser ? "flex-row-reverse" : "flex-row",
       )}
     >
       {!isCurrentUser && (
         <Avatar className="h-8 w-8">
-          <AvatarImage src={message.user.image ?? ""} alt={message.user.name ?? "User"} />
-          <AvatarFallback>{message.user.name?.charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarImage
+            src={message.user.image ?? ""}
+            alt={message.user.name ?? "User"}
+          />
+          <AvatarFallback>
+            {message.user.name?.charAt(0).toUpperCase()}
+          </AvatarFallback>
         </Avatar>
       )}
+
       <div
         className={cn(
-          "max-w-xs rounded-lg p-3",
-          isCurrentUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted"
+          "group relative max-w-[70%] rounded-lg px-4 py-2",
+          isCurrentUser ? "bg-primary text-primary-foreground" : "bg-muted",
         )}
       >
-        <p className="text-sm">{message.text}</p>
+        {!isCurrentUser && (
+          <p className="mb-1 text-xs font-semibold opacity-70">
+            {message.user.name}
+          </p>
+        )}
+
+        {isEditing ? (
+          <div className="flex items-center gap-2">
+            <Input
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleEdit();
+                if (e.key === "Escape") setIsEditing(false);
+              }}
+              className="h-8 text-sm"
+              autoFocus
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleEdit}
+              disabled={editMutation.isPending}
+              className="h-8 w-8 p-0"
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsEditing(false)}
+              className="h-8 w-8 p-0"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm break-words whitespace-pre-wrap">
+              {message.text}
+            </p>
+            {message.isEdited && (
+              <p className="mt-1 text-xs opacity-50">(edited)</p>
+            )}
+          </>
+        )}
+
+        {isCurrentUser && !isEditing && canEditOrDelete() && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="absolute -top-2 right-0 h-6 w-6 p-0 opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <MoreVertical className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setIsEditing(true)}>
+                <Edit2 className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        <p className="mt-1 text-xs opacity-50">
+          {new Date(message.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
       </div>
+
       {isCurrentUser && (
         <Avatar className="h-8 w-8">
-          <AvatarImage src={session.user.image ?? ""} alt={session.user.name ?? "User"} />
-          <AvatarFallback>{session.user.name?.charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarImage
+            src={session.user.image ?? ""}
+            alt={session.user.name ?? "User"}
+          />
+          <AvatarFallback>
+            {session.user.name?.charAt(0).toUpperCase()}
+          </AvatarFallback>
         </Avatar>
       )}
     </div>

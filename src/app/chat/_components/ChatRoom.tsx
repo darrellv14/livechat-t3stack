@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, type FormEvent } from "react";
-import { api } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Message } from "./Message";
-import { useSession } from "next-auth/react";
 import type { RouterOutputs } from "@/trpc/react";
+import { api } from "@/trpc/react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Message } from "./Message";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
 
@@ -15,17 +15,63 @@ export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
   const { data: session, status } = useSession();
   const [text, setText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const utils = api.useUtils();
 
   const { data: messages, refetch } = api.chat.getMessages.useQuery(
     { chatRoomId },
     {
       enabled: !!chatRoomId && !!session,
-      refetchInterval: 2000, // Using tRPC's built-in refetching
-    }
+      refetchInterval: 500, // Much faster polling - 500ms instead of 2000ms
+      refetchIntervalInBackground: true, // Keep refetching even when tab is not focused
+    },
   );
 
   const sendMessage = api.chat.sendMessage.useMutation({
+    // Optimistic update - update UI immediately before server responds
+    onMutate: async (newMessage) => {
+      // Cancel outgoing refetches
+      await utils.chat.getMessages.cancel({ chatRoomId });
+
+      // Snapshot previous value
+      const previousMessages = utils.chat.getMessages.getData({ chatRoomId });
+
+      // Optimistically update with new message
+      if (session?.user) {
+        utils.chat.getMessages.setData({ chatRoomId }, (old) => {
+          if (!old) return old;
+          return [
+            ...old,
+            {
+              id: `temp-${Date.now()}`, // Temporary ID
+              text: newMessage.text,
+              createdAt: new Date(),
+              chatRoomId: newMessage.chatRoomId,
+              userId: session.user.id,
+              user: {
+                id: session.user.id,
+                name: session.user.name ?? null,
+                email: session.user.email ?? null,
+                image: session.user.image ?? null,
+                emailVerified: null,
+              },
+            },
+          ] as typeof old;
+        });
+      }
+
+      return { previousMessages };
+    },
+    onError: (err, newMessage, context) => {
+      // Rollback on error
+      if (context?.previousMessages) {
+        utils.chat.getMessages.setData(
+          { chatRoomId },
+          context.previousMessages,
+        );
+      }
+    },
     onSuccess: () => {
+      // Refetch to get real message from server
       void refetch();
       setText("");
     },
@@ -46,45 +92,96 @@ export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
     }
   };
 
+  // Handle keyboard shortcuts
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
+    }
+  };
+
   if (status === "loading") {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-muted-foreground">Loading session...</div>
+      </div>
+    );
   }
 
   if (!session) {
-    return <div>You must be logged in to chat.</div>;
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-semibold">You must be logged in to chat</p>
+          <Link
+            href="/api/auth/signin"
+            className="text-primary mt-4 inline-block hover:underline"
+          >
+            Sign in here
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <Card className="flex h-full max-h-screen flex-col">
-      <CardHeader className="border-b">
-        <h1 className="text-2xl font-bold">Live Chat - General</h1>
-        <p className="text-sm text-muted-foreground">
-          Chat in real-time with other users
-        </p>
-      </CardHeader>
-      <CardContent className="grow overflow-y-auto p-4">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b p-4">
+        <div>
+          <h2 className="text-lg font-semibold">Chat</h2>
+          <p className="text-muted-foreground text-sm">
+            {messages?.length ?? 0} messages
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+          <span className="text-muted-foreground text-xs">Live</span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
-          {messages?.map((msg: MessageType) => (
-            <Message key={msg.id} message={msg} session={session} />
-          ))}
+          {!messages || messages.length === 0 ? (
+            <div className="text-muted-foreground flex h-full items-center justify-center">
+              No messages yet. Start the conversation!
+            </div>
+          ) : (
+            messages.map((msg: MessageType) => (
+              <Message
+                key={msg.id}
+                message={msg}
+                session={session}
+                onMessageUpdated={() => void refetch()}
+              />
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
-      </CardContent>
-      <CardFooter className="border-t p-4">
-        <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2">
+      </div>
+
+      <div className="border-t p-4">
+        <form
+          onSubmit={handleSendMessage}
+          className="flex w-full items-center gap-2"
+        >
           <Input
             type="text"
-            placeholder="Type a message..."
+            placeholder="Type a message... (Press Enter to send)"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="grow"
+            onKeyDown={handleKeyDown}
+            className="flex-1"
             disabled={sendMessage.isPending}
+            autoFocus
           />
-          <Button type="submit" disabled={sendMessage.isPending || !text.trim()}>
+          <Button
+            type="submit"
+            disabled={sendMessage.isPending || !text.trim()}
+          >
             {sendMessage.isPending ? "Sending..." : "Send"}
           </Button>
         </form>
-      </CardFooter>
-    </Card>
+      </div>
+    </div>
   );
 }

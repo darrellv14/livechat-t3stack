@@ -75,16 +75,25 @@ model ChatRoom {
     createdAt DateTime  @default(now())
     updatedAt DateTime  @updatedAt
     name      String?
+    isGroup   Boolean   @default(false) // false for 1-on-1, true for group
     messages  Message[]
     users     User[]    @relation("ChatRoomToUser")
+
+    @@index([isGroup])
 }
 
 model Message {
-    id         String   @id @default(cuid())
-    createdAt  DateTime @default(now())
+    id         String    @id @default(cuid())
+    createdAt  DateTime  @default(now())
+    updatedAt  DateTime  @default(now()) @updatedAt
     text       String
-    chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id])
+    isEdited   Boolean   @default(false)
+    isDeleted  Boolean   @default(false)
+    chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
     chatRoomId String
-    user       User     @relation(fields: [userId], references: [id])
+    user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
     userId     String
+
+    @@index([chatRoomId, createdAt])
+    @@index([userId])
 }

@@ -1,67 +1,190 @@
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { auth } from "@/server/auth";
+import { MessageSquare, Shield, Users, Zap } from "lucide-react";
 import Link from "next/link";
 
-import { LatestPost } from "@/app/_components/post";
-import { auth } from "@/server/auth";
-import { api, HydrateClient } from "@/trpc/server";
-
 export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
   const session = await auth();
 
-  if (session?.user) {
-    void api.post.getLatest.prefetch();
-  }
-
   return (
-    <HydrateClient>
-      <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-        <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-          <h1 className="text-5xl font-extrabold tracking-tight sm:text-[5rem]">
-            Live <span className="text-[hsl(280,100%,70%)]">Chat</span> App
+    <div className="min-h-[calc(100vh-4rem)]">
+      {/* Hero Section */}
+      <section className="container mx-auto px-4 py-16 md:py-24">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mb-8 inline-flex items-center rounded-full border px-4 py-2 text-sm">
+            <Zap className="mr-2 h-4 w-4 text-yellow-500" />
+            <span>Built with T3 Stack - Lightning Fast</span>
+          </div>
+
+          <h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-6xl">
+            Real-time Chat Made{" "}
+            <span className="from-primary to-primary/60 bg-gradient-to-r bg-clip-text text-transparent">
+              Simple
+            </span>
           </h1>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
-            <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="/chat"
-            >
-              <h3 className="text-2xl font-bold">Go to Chat →</h3>
-              <div className="text-lg">
-                Start chatting with other users in real-time. Built with T3 Stack, tRPC, and Prisma.
-              </div>
-            </Link>
-            <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="https://create.t3.gg/en/introduction"
-              target="_blank"
-            >
-              <h3 className="text-2xl font-bold">Documentation →</h3>
-              <div className="text-lg">
-                Learn more about Create T3 App, the libraries it uses, and how
-                to deploy it.
-              </div>
-            </Link>
-          </div>
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-2xl text-white">
-              {hello ? hello.greeting : "Loading tRPC query..."}
-            </p>
 
-            <div className="flex flex-col items-center justify-center gap-4">
-              <p className="text-center text-2xl text-white">
-                {session && <span>Logged in as {session.user?.name}</span>}
-              </p>
-              <Link
-                href={session ? "/api/auth/signout" : "/api/auth/signin"}
-                className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
-              >
-                {session ? "Sign out" : "Sign in"}
+          <p className="text-muted-foreground mb-8 text-lg sm:text-xl">
+            Connect with anyone instantly. Send messages, edit within a minute,
+            and enjoy lightning-fast real-time communication.
+          </p>
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
+            {session ? (
+              <Link href="/chat">
+                <Button size="lg" className="w-full sm:w-auto">
+                  <MessageSquare className="mr-2 h-5 w-5" />
+                  Open Chats
+                </Button>
               </Link>
-            </div>
+            ) : (
+              <Link href="/api/auth/signin">
+                <Button size="lg" className="w-full sm:w-auto">
+                  Get Started Free
+                </Button>
+              </Link>
+            )}
+            <a
+              href="https://github.com/darrellv14/livechat-t3stack"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button size="lg" variant="outline" className="w-full sm:w-auto">
+                View on GitHub
+              </Button>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="bg-muted/50 border-t py-16">
+        <div className="container mx-auto px-4">
+          <div className="mb-12 text-center">
+            <h2 className="mb-4 text-3xl font-bold">Why Choose LiveChat?</h2>
+            <p className="text-muted-foreground">
+              Modern features for seamless communication
+            </p>
           </div>
 
-          {session?.user && <LatestPost />}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <Zap className="mb-2 h-8 w-8 text-yellow-500" />
+                <CardTitle>Lightning Fast</CardTitle>
+                <CardDescription>
+                  Messages update every 500ms. Experience real-time chat like
+                  never before.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <MessageSquare className="mb-2 h-8 w-8 text-blue-500" />
+                <CardTitle>1-on-1 Messaging</CardTitle>
+                <CardDescription>
+                  Direct messages with any user. Private and secure
+                  conversations.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <Shield className="mb-2 h-8 w-8 text-green-500" />
+                <CardTitle>Edit & Delete</CardTitle>
+                <CardDescription>
+                  Made a typo? Edit or delete your messages within 1 minute.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <Users className="mb-2 h-8 w-8 text-purple-500" />
+                <CardTitle>Group Chats</CardTitle>
+                <CardDescription>
+                  Create group conversations and chat with multiple people at
+                  once.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <svg
+                  className="mb-2 h-8 w-8 text-red-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+                <CardTitle>Optimistic Updates</CardTitle>
+                <CardDescription>
+                  Your messages appear instantly, even before the server
+                  responds.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <svg
+                  className="mb-2 h-8 w-8 text-indigo-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+                  />
+                </svg>
+                <CardTitle>Fully Responsive</CardTitle>
+                <CardDescription>
+                  Perfect experience on desktop, tablet, and mobile devices.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
         </div>
-      </main>
-    </HydrateClient>
+      </section>
+
+      {/* CTA Section */}
+      {!session && (
+        <section className="container mx-auto px-4 py-16">
+          <Card className="border-primary/20 bg-primary/5 mx-auto max-w-2xl">
+            <CardHeader className="text-center">
+              <CardTitle className="text-3xl">
+                Ready to Start Chatting?
+              </CardTitle>
+              <CardDescription className="text-lg">
+                Join now and connect with friends instantly
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Link href="/api/auth/signin">
+                <Button size="lg">Sign in with Google</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+    </div>
   );
 }
