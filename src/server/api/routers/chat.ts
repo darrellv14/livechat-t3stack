@@ -80,7 +80,7 @@ export const chatRouter = createTRPCRouter({
       return newChat;
     }),
 
-  // Get all chat rooms for current user
+    // Get all chat rooms for current user
   getChatRooms: protectedProcedure.query(async ({ ctx }) => {
     const chatRooms = await ctx.db.chatRoom.findMany({
       where: {
@@ -104,7 +104,11 @@ export const chatRouter = createTRPCRouter({
             createdAt: "desc",
           },
           take: 1,
-          include: {
+          select: {
+            id: true,
+            text: true,
+            createdAt: true,
+            isDeleted: true,
             user: {
               select: {
                 id: true,
@@ -117,8 +121,8 @@ export const chatRouter = createTRPCRouter({
       orderBy: {
         updatedAt: "desc",
       },
+      cacheStrategy: { ttl: 10, swr: 60 }, // Cache for 10s, stale-while-revalidate for 1 minute
     });
-
     return chatRooms;
   }),
 
@@ -255,6 +259,7 @@ export const chatRouter = createTRPCRouter({
           createdAt: "asc",
         },
         take: input.limit,
+        cacheStrategy: { ttl: 5, swr: 30 }, // Cache for 5s, stale-while-revalidate for 30s
       });
       return messages;
     }),
@@ -265,6 +270,7 @@ export const chatRouter = createTRPCRouter({
         name: "General",
         isGroup: true,
       },
+      cacheStrategy: { ttl: 30, swr: 120 }, // Cache for 30s, stale-while-revalidate for 2 minutes
     });
 
     if (!chatRoom) {
@@ -289,6 +295,7 @@ export const chatRouter = createTRPCRouter({
             },
           },
         },
+        cacheStrategy: { ttl: 30, swr: 120 },
       });
 
       if (!userInRoom) {

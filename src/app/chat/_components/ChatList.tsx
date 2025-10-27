@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 import { MessageSquare, Plus } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useState } from "react";
 
 interface ChatListProps {
@@ -23,6 +24,7 @@ interface ChatListProps {
 }
 
 export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
+  const { data: session } = useSession();
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const { data: chatRooms, isLoading: loadingChats } =
     api.chat.getChatRooms.useQuery(undefined, {
@@ -45,7 +47,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
       return chat.name ?? "Group Chat";
     }
     // For DM, show the other user's name
-    const otherUser = chat.users.find((u) => u.id !== chat.users[0]?.id);
+    const otherUser = chat.users.find((u) => u.id !== session?.user?.id);
     return otherUser?.name ?? "Unknown User";
   };
 
@@ -53,13 +55,14 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     if (chat.isGroup) {
       return null;
     }
-    const otherUser = chat.users.find((u) => u.id !== chat.users[0]?.id);
+    const otherUser = chat.users.find((u) => u.id !== session?.user?.id);
     return otherUser?.image ?? null;
   };
 
   const getLastMessage = (chat: NonNullable<typeof chatRooms>[number]) => {
     const lastMsg = chat.messages[0];
     if (!lastMsg) return "No messages yet";
+    if (lastMsg.isDeleted) return "Message deleted";
     return `${lastMsg.user.name}: ${lastMsg.text}`;
   };
 
