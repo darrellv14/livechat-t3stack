@@ -14,6 +14,10 @@ export default function ChatPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const { data: session, status } = useSession();
 
+  const handleBackToList = () => {
+    setSelectedChatId(null);
+  };
+
   if (status === "loading") {
     return (
       <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
@@ -41,16 +45,35 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      {/* Sidebar */}
-      <div className="w-80 border-r">
+      {/* Desktop: Sidebar always visible */}
+      <div className="hidden w-80 border-r md:block">
         <ChatList
           selectedChatId={selectedChatId ?? undefined}
           onSelectChat={setSelectedChatId}
         />
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1">
+      {/* Mobile: Sidebar or Chat (WhatsApp style toggle) */}
+      <div className="block w-full md:hidden">
+        {!selectedChatId ? (
+          // Show chat list on mobile when no chat selected
+          <ChatList
+            selectedChatId={selectedChatId ?? undefined}
+            onSelectChat={setSelectedChatId}
+          />
+        ) : (
+          // Show chat room with back button on mobile
+          <div className="flex h-full flex-col">
+            <ChatRoom 
+              chatRoomId={selectedChatId} 
+              onBack={handleBackToList}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: Main Chat Area */}
+      <div className="hidden flex-1 md:block">
         {selectedChatId ? (
           <ChatRoom chatRoomId={selectedChatId} />
         ) : (

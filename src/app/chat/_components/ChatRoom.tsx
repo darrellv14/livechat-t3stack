@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
+import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -11,7 +12,13 @@ import { Message } from "./Message";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
 
-export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
+export function ChatRoom({ 
+  chatRoomId, 
+  onBack 
+}: { 
+  chatRoomId: string;
+  onBack?: () => void;
+}) {
   const { data: session, status } = useSession();
   const [text, setText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -126,8 +133,19 @@ export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b p-4">
-        <div>
+      {/* Header with optional back button for mobile */}
+      <div className="flex items-center gap-3 border-b p-4">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onBack}
+            className="shrink-0 md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        )}
+        <div className="flex-1">
           <h2 className="text-lg font-semibold">Chat</h2>
           <p className="text-muted-foreground text-sm">
             {messages?.length ?? 0} messages
@@ -166,7 +184,7 @@ export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
         >
           <Input
             type="text"
-            placeholder="Type a message... (Press Enter to send)"
+            placeholder="Type a message..."
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -176,9 +194,10 @@ export function ChatRoom({ chatRoomId }: { chatRoomId: string }) {
           />
           <Button
             type="submit"
+            size="icon"
             disabled={sendMessage.isPending || !text.trim()}
           >
-            {sendMessage.isPending ? "Sending..." : "Send"}
+            <Send className="h-5 w-5" />
           </Button>
         </form>
       </div>
