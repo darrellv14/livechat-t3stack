@@ -17,12 +17,15 @@ export const authConfig = {
     GoogleProvider({
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+      authorization: {
+        params: {
+          redirect_uri: "https://darrellvalentino.com/chat/api/auth/callback/google",
+        },
+      },
     }),
   ],
   adapter: PrismaAdapter(db),
   basePath: "/chat/api/auth",
-  trustHost: true, // PENTING: Trust forwarded host dari rewrite
-  useSecureCookies: true,
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
