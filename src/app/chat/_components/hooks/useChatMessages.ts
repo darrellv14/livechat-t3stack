@@ -27,7 +27,10 @@ export function useChatMessages({ chatRoomId, session }: ChatRoomProps) {
     },
   );
 
-  const messages = pages?.pages.flatMap((p) => p.items) ?? [];
+  // Flatten and enforce a stable ascending order across pages
+  const messages = (pages?.pages.flatMap((p) => p.items) ?? [])
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   // Virtualizer setup for messages
   const rowVirtualizer = useVirtualizer({

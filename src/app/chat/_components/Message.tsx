@@ -177,18 +177,26 @@ export function Message({ message, session, onMessageUpdated, onReply }: Message
         ) : (
           <>
             {message.replyTo && (
-              <div className={cn(
-                "mb-1 rounded-md border px-2 py-1 text-xs",
-                isCurrentUser ? "border-white/30" : "border-foreground/10",
-              )}>
-                <p className="font-semibold opacity-80">{message.replyTo?.user?.name ?? "User"}</p>
-                <p className="line-clamp-2 opacity-70">{message.replyTo?.text}</p>
+              <div
+                className={cn(
+                  "mb-1 max-w-full overflow-hidden rounded-md border px-2 py-1 text-xs",
+                  isCurrentUser ? "border-white/30" : "border-foreground/10",
+                )}
+              >
+                <p className="truncate font-semibold opacity-80">
+                  {message.replyTo?.user?.name ?? "User"}
+                </p>
+                <p className="line-clamp-2 wrap-break-word whitespace-pre-wrap opacity-70">
+                  {message.replyTo?.text}
+                </p>
               </div>
             )}
-            <p className={cn(
-              "text-sm wrap-break-word whitespace-pre-wrap",
-              !expanded && showReadMore && "line-clamp-6",
-            )}>
+            <p
+              className={cn(
+                "text-sm wrap-break-word whitespace-pre-wrap",
+                !expanded && showReadMore && "line-clamp-6",
+              )}
+            >
               {content}
             </p>
             {showReadMore && (
