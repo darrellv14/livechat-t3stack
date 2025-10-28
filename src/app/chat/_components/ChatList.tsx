@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { api } from "@/trpc/react";
+import { api, type RouterOutputs } from "@/trpc/react";
 import { MessageSquare, Plus } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
@@ -47,7 +47,9 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     createDM.mutate({ userId });
   };
 
-  const getChatName = (chat: NonNullable<typeof chatRooms>[number]): string => {
+  type ChatRoomItem = RouterOutputs["chat"]["getChatRooms"][number];
+
+  const getChatName = (chat: ChatRoomItem): string => {
     if (chat.isGroup) {
       return chat.name ?? "Group Chat";
     }
@@ -56,7 +58,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.name ?? "Unknown User";
   };
 
-  const getChatAvatar = (chat: NonNullable<typeof chatRooms>[number]): string | null => {
+  const getChatAvatar = (chat: ChatRoomItem): string | null => {
     if (chat.isGroup) {
       return null;
     }
@@ -64,7 +66,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.image ?? null;
   };
 
-  const getLastMessage = (chat: NonNullable<typeof chatRooms>[number]): string => {
+  const getLastMessage = (chat: ChatRoomItem): string => {
     const lastMsg = chat.messages[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
@@ -86,11 +88,11 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
         chatRoomId: string;
         user: { id: string; name: string | null };
       }) => {
-        utils.chat.getChatRooms.setData(undefined, (rooms) => {
+        utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
           if (!rooms) return rooms;
           
           let roomUpdated = false;
-          const updated = rooms.map((r) => {
+          const updated = rooms.map((r): ChatRoomItem => {
             if (r.id !== payload.chatRoomId) return r;
             roomUpdated = true;
             return {
@@ -105,7 +107,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                   user: { id: payload.user.id, name: payload.user.name },
                 },
               ],
-            } as typeof r;
+            } satisfies ChatRoomItem;
           });
           
           // If room not found in cache, don't update - let refetch handle it
@@ -120,13 +122,13 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
       });
 
       ch.bind("delete-message", (payload: { messageId: string }) => {
-        utils.chat.getChatRooms.setData(undefined, (rooms) => {
+        utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
           if (!rooms) return rooms;
-          return rooms.map((r) => {
+          return rooms.map((r): ChatRoomItem => {
             if (r.id !== room.id) return r;
             const last = r.messages[0];
             if (!last || last.id !== payload.messageId) return r;
-            return { ...r, messages: [] } as typeof r;
+            return { ...r, messages: [] } satisfies ChatRoomItem;
           });
         });
       });

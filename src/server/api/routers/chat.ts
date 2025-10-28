@@ -132,7 +132,7 @@ export const chatRouter = createTRPCRouter({
   getChatRoomById: protectedProcedure
     .input(z.object({ chatRoomId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const chatRoom = await ctx.db.chatRoom.findUnique({
+      const chatRoom = (await ctx.db.chatRoom.findUnique({
         where: { id: input.chatRoomId },
         include: {
           users: {
@@ -146,7 +146,18 @@ export const chatRouter = createTRPCRouter({
           },
         },
         cacheStrategy: { ttl: 5, swr: 30 },
-      });
+      })) as {
+        id: string;
+        isGroup: boolean;
+        name: string | null;
+        users: Array<{
+          id: string;
+          name: string | null;
+          email: string | null;
+          image: string | null;
+          lastSeen: Date | null;
+        }>;
+      } | null;
 
       if (!chatRoom) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Chat room not found" });

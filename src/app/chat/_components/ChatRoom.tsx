@@ -193,7 +193,7 @@ export function ChatRoom({
         return { ...data, pages: pagesCopy };
       });
       
-      utils.chat.getChatRooms.setData(undefined, (rooms) => {
+      utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
         if (!rooms) return rooms;
         const updated = rooms.map((room) => {
           if (room.id !== payload.chatRoomId) return room;
@@ -212,7 +212,7 @@ export function ChatRoom({
                 },
               },
             ],
-          } as typeof room;
+          };
         });
         updated.sort(
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
@@ -251,7 +251,7 @@ export function ChatRoom({
         };
       });
       // Also update chat list cache last message if it was the deleted one
-      utils.chat.getChatRooms.setData(undefined, (rooms) => {
+      utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
         if (!rooms) return rooms;
         return rooms.map((room) => {
           if (room.id !== chatRoomId) return room;
