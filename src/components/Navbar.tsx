@@ -18,7 +18,7 @@ export function Navbar() {
   const { data: session } = useSession();
 
   return (
-    <nav className="bg-background border-b w-full">
+    <nav className="bg-background w-full border-b">
       <div className="flex h-16 w-full items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2 text-xl font-bold">
           <MessageSquare className="text-primary h-6 w-6" />
@@ -82,9 +82,7 @@ export function Navbar() {
               </DropdownMenu>
             </>
           ) : (
-            <Button onClick={() => signIn("google", { callbackUrl: "/room" })}>
-              Sign in
-            </Button>
+            <Button onClick={() => signIn("google")}>Sign in</Button>
           )}
         </div>
       </div>

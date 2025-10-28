@@ -5,12 +5,6 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {
-  basePath: process.env.NODE_ENV === "production" ? "/chat" : undefined,
-  assetPrefix:
-    process.env.NODE_ENV === "production"
-      ? "https://darrellvalentino.com/chat"
-      : undefined,
-};
+const config = {};
 
 export default config;
