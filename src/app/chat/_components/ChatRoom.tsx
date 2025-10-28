@@ -16,6 +16,15 @@ import { Message } from "./Message";
 import { env } from "@/env";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
+type ChatListRooms = RouterOutputs["chat"]["getChatRooms"];
+type ChatListRoomItem = ChatListRooms[number];
+type ChatListMessage = {
+  id: string;
+  text: string;
+  createdAt: Date | string;
+  isDeleted: boolean;
+  user: { id: string; name: string | null };
+};
 
 export function ChatRoom({ 
   chatRoomId, 
@@ -193,9 +202,9 @@ export function ChatRoom({
         return { ...data, pages: pagesCopy };
       });
       
-      utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
+      utils.chat.getChatRooms.setData(undefined, (rooms: ChatListRooms | undefined) => {
         if (!rooms) return rooms;
-        const updated = rooms.map((room) => {
+        const updated = rooms.map((room: ChatListRoomItem) => {
           if (room.id !== payload.chatRoomId) return room;
           return {
             ...room,
@@ -251,12 +260,12 @@ export function ChatRoom({
         };
       });
       // Also update chat list cache last message if it was the deleted one
-      utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
+      utils.chat.getChatRooms.setData(undefined, (rooms: ChatListRooms | undefined) => {
         if (!rooms) return rooms;
-        return rooms.map((room) => {
+        return rooms.map((room: ChatListRoomItem) => {
           if (room.id !== chatRoomId) return room;
-          const msgs = Array.isArray(room.messages) ? room.messages : [];
-          const last = msgs[0];
+          const msgs = (Array.isArray(room.messages) ? room.messages : []) as ChatListMessage[];
+          const last: ChatListMessage | undefined = msgs[0];
           if (!last || last.id !== payload.messageId) return room;
           return {
             ...room,
@@ -360,7 +369,13 @@ export function ChatRoom({
     }
 
     // For DM, show the other user's info
-    const otherUser = chatRoom.users.find((u) => u.id !== session.user.id);
+    let otherUser: { id: string; name: string | null; image: string | null; lastSeen: Date | null } | undefined;
+    for (const u of chatRoom.users) {
+      if (u?.id && u.id !== session.user.id) {
+        otherUser = u as typeof otherUser extends undefined ? never : NonNullable<typeof otherUser>;
+        break;
+      }
+    }
     if (!otherUser) return { name: "Chat", avatar: null, lastSeen: null };
 
     return {
