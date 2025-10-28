@@ -3,11 +3,13 @@ import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
 import { db } from "@/server/db";
+import { env } from "@/env";
 
 declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
       id: string;
+      image: string;
     } & DefaultSession["user"];
   }
 }
@@ -15,24 +17,18 @@ declare module "next-auth" {
 export const authConfig = {
   providers: [
     GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_ID!,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+      clientId: env.AUTH_GOOGLE_ID,
+      clientSecret: env.AUTH_GOOGLE_SECRET,
     }),
   ],
   adapter: PrismaAdapter(db),
-  basePath: '/chat/api/auth',
-  redirectProxyUrl: process.env.NODE_ENV === 'production' 
-    ? 'https://livechat-t3stack.vercel.app/chat/api/auth'
-    : undefined,
-  pages: {
-    signIn: '/chat',
-  },
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
       user: {
         ...session.user,
         id: user.id,
+        image: user.image,
       },
     }),
   },

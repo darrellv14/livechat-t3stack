@@ -39,7 +39,7 @@ export default function AboutPage() {
 
           <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
             {session ? (
-              <Link href="/room">
+              <Link href="/chat">
                 <Button size="lg" className="w-full sm:w-auto">
                   <MessageSquare className="mr-2 h-5 w-5" />
                   Open Chats

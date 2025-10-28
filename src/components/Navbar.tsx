@@ -28,7 +28,7 @@ export function Navbar() {
         <div className="flex items-center gap-4">
           {session ? (
             <>
-              <Link href="/room">
+              <Link href="/chat">
                 <Button variant="ghost">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Chats
