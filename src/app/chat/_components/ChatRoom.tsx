@@ -260,7 +260,7 @@ export function ChatRoom({
           return {
             ...room,
             messages: [],
-          } as typeof room;
+          };
         });
       });
     });
@@ -343,9 +343,13 @@ export function ChatRoom({
   }
 
   // Get chat name and avatar for header
-  const getChatInfo = (): { name: string; avatar: string | null; lastSeen: Date | null } => {
+  const getChatInfo = (): {
+    name: string;
+    avatar: string | null;
+    lastSeen: Date | null;
+  } => {
     if (!chatRoom) return { name: "Chat", avatar: null, lastSeen: null };
-    
+
     if (chatRoom.isGroup) {
       return {
         name: chatRoom.name ?? "Group Chat",
@@ -353,15 +357,15 @@ export function ChatRoom({
         lastSeen: null,
       };
     }
-    
+
     // For DM, show the other user's info
     const otherUser = chatRoom.users.find((u) => u.id !== session.user.id);
     if (!otherUser) return { name: "Chat", avatar: null, lastSeen: null };
-    
+
     return {
       name: otherUser.name ?? "User",
       avatar: otherUser.image ?? null,
-      lastSeen: otherUser.lastSeen ?? null,
+      lastSeen: otherUser.lastSeen,
     };
   };
 
