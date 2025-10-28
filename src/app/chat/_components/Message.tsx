@@ -219,36 +219,64 @@ export function Message({ message, session, onMessageUpdated, onReply }: Message
           </>
         )}
 
-        {isCurrentUser && !isEditing && canEditOrDelete() && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                  "absolute -top-2 -right-2 h-7 w-7 p-0 rounded-full",
-                  "opacity-0 transition-opacity group-hover:opacity-100",
-                  "bg-background/80 hover:bg-background shadow-md"
-                )}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onReply?.(message)}>
-                <Edit2 className="mr-2 h-4 w-4 rotate-180" />
-                Reply
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsEditing(true)} disabled={isTemporary}>
-                <Edit2 className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDelete} className="text-red-600" disabled={isTemporary}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {!isEditing && (
+          <>
+            {isCurrentUser && canEditOrDelete() ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "absolute -top-2 -right-2 h-7 w-7 p-0 rounded-full",
+                      "opacity-0 transition-opacity group-hover:opacity-100",
+                      "bg-background/80 hover:bg-background shadow-md"
+                    )}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onReply?.(message)}>
+                    <Edit2 className="mr-2 h-4 w-4 rotate-180" />
+                    Reply
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsEditing(true)} disabled={isTemporary}>
+                    <Edit2 className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDelete} className="text-red-600" disabled={isTemporary}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              // For messages not authored by current user (or when edit/delete not allowed), still allow Reply
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "absolute -top-2 -right-2 h-7 w-7 p-0 rounded-full",
+                      "opacity-0 transition-opacity group-hover:opacity-100",
+                      "bg-background/80 hover:bg-background shadow-md"
+                    )}
+                    aria-label="Message actions"
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onReply?.(message)}>
+                    <Edit2 className="mr-2 h-4 w-4 rotate-180" />
+                    Reply
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </>
         )}
       </div>
 
