@@ -152,8 +152,11 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
           if (!rooms) return rooms;
           return rooms.map((r): ChatRoomItem => {
             if (r.id !== room.id) return r;
-            const msgs = (Array.isArray(r.messages) ? r.messages : []) as ChatLastMsg[];
-            const last = msgs[0];
+            const rWithMsgs = r as Partial<{ messages?: ChatLastMsg[] }>;
+            const msgs: ChatLastMsg[] = Array.isArray(rWithMsgs.messages)
+              ? rWithMsgs.messages
+              : [];
+            const last: ChatLastMsg | undefined = msgs[0];
             if (!last || last.id !== payload.messageId) return r;
             return { ...r, messages: [] } as ChatRoomItem;
           });
