@@ -14,7 +14,7 @@ import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 import { Check, Edit2, MoreVertical, Trash2, X } from "lucide-react";
 import type { Session } from "next-auth";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type ChatMessage = RouterOutputs["chat"]["getMessages"][number];
@@ -30,6 +30,7 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [decrypted, setDecrypted] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const isCurrentUser = message.userId === session.user.id;
   const utils = api.useUtils();
 
@@ -77,13 +78,31 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
 
   // Try to decrypt if encrypted
   const isEncrypted = typeof message.text === "string" && message.text.startsWith("enc:");
-  useState(() => {
+  useEffect(() => {
+    let active = true;
     if (isEncrypted && decryptText) {
-      void decryptText(message.text).then((pt) => setDecrypted(pt));
+      void decryptText(message.text).then((pt) => {
+        if (active) setDecrypted(pt);
+      });
     } else {
       setDecrypted(null);
     }
-  });
+    return () => {
+      active = false;
+    };
+  }, [isEncrypted, decryptText, message.text]);
+
+  const content = useMemo(() => {
+    return isEncrypted ? (decrypted ?? "🔒 Encrypted message") : message.text;
+  }, [isEncrypted, decrypted, message.text]);
+
+  const showReadMore = useMemo(() => {
+    if (!content) return false;
+    // Heuristic: long texts likely need expansion
+    const longByLength = content.length > 280;
+    const longByLines = content.split(/\n/).length > 6;
+    return longByLength || longByLines;
+  }, [content]);
 
   return (
     <div
@@ -148,9 +167,24 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
           </div>
         ) : (
           <>
-            <p className="text-sm wrap-break-word whitespace-pre-wrap">
-              {isEncrypted ? (decrypted ?? "🔒 Encrypted message") : message.text}
+            <p className={cn(
+              "text-sm wrap-break-word whitespace-pre-wrap text-justify",
+              !expanded && showReadMore && "line-clamp-6",
+            )}>
+              {content}
             </p>
+            {showReadMore && (
+              <button
+                type="button"
+                onClick={() => setExpanded((e) => !e)}
+                className={cn(
+                  "mt-1 text-xs underline",
+                  isCurrentUser ? "opacity-90" : "opacity-70",
+                )}
+              >
+                {expanded ? "Show less" : "Read more"}
+              </button>
+            )}
             {message.isEdited && (
               <p className="mt-1 text-xs opacity-50">(edited)</p>
             )}

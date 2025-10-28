@@ -218,7 +218,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                     <p className="font-medium">{getChatName(chat)}</p>
                     {chat.isGroup && <Badge variant="secondary">Group</Badge>}
                   </div>
-                  <p className="text-muted-foreground truncate text-sm">
+                  <p className="text-muted-foreground text-sm wrap-break-word line-clamp-3">
                     {getLastMessage(chat)}
                   </p>
                 </div>
