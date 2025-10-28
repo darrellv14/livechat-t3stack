@@ -3,17 +3,17 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { env } from "@/env";
+import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
-import { env } from "@/env";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
 type ChatListRooms = RouterOutputs["chat"]["getChatRooms"];
@@ -124,6 +124,13 @@ export function ChatRoom({
       return { previous };
     },
     onError: (_err, _newMessage, ctx) => {
+      if (ctx?.previous) {
+        utils.chat.getMessagesInfinite.setInfiniteData(
+          { chatRoomId, limit: 50 },
+          () => ctx.previous,
+        );
+      }
+    },
     onSuccess: () => {
       setText("");
       // Scroll to the latest message we just added
@@ -155,7 +162,7 @@ export function ChatRoom({
     type EventMessage = Omit<MessageType, "user"> & {
       user: { id: string; name: string | null; image: string | null };
     } & { clientId?: string };
-  channel.bind("new-message", (payload: EventMessage) => {
+    channel.bind("new-message", (payload: EventMessage) => {
       // Debug aid: observe real-time events in the console during development
       if (process.env.NODE_ENV !== "production") {
         console.debug("[Pusher] new-message", {
@@ -200,7 +207,8 @@ export function ChatRoom({
       // If user is already near the bottom, keep them at the newest message
       const el = scrollParentRef.current;
       if (el) {
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const distanceFromBottom =
+          el.scrollHeight - el.scrollTop - el.clientHeight;
         if (distanceFromBottom < 64) {
           // Slight delay to allow DOM to paint
           requestAnimationFrame(scrollToBottom);
