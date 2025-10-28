@@ -133,7 +133,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                   user: { id: payload.user.id, name: payload.user.name },
                 },
               ],
-            } satisfies ChatRoomItem;
+            } as ChatRoomItem;
           });
           
           // If room not found in cache, don't update - let refetch handle it
@@ -155,7 +155,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
             const msgs = (Array.isArray(r.messages) ? r.messages : []) as ChatLastMsg[];
             const last = msgs[0];
             if (!last || last.id !== payload.messageId) return r;
-            return { ...r, messages: [] } satisfies ChatRoomItem;
+            return { ...r, messages: [] } as ChatRoomItem;
           });
         });
       });
