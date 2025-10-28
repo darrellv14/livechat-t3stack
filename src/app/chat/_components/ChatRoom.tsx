@@ -37,10 +37,49 @@ export function ChatRoom({
   );
 
   const sendMessage = api.chat.sendMessage.useMutation({
+    // Re-introduce a minimal optimistic update for instant UX
+    onMutate: async (newMessage) => {
+      await utils.chat.getMessages.cancel({ chatRoomId });
+      const previous = utils.chat.getMessages.getData({ chatRoomId });
+
+      if (session?.user) {
+        const tempId = newMessage.clientId ?? `temp-${Date.now()}`;
+        utils.chat.getMessages.setData({ chatRoomId }, (old) => {
+          if (!old) return old;
+          return [
+            ...old,
+            {
+              id: tempId,
+              text: newMessage.text,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              isEdited: false,
+              isDeleted: false,
+              chatRoomId: newMessage.chatRoomId,
+              userId: session.user.id,
+              user: {
+                id: session.user.id,
+                name: session.user.name ?? null,
+                email: session.user.email ?? null,
+                image: session.user.image ?? null,
+                emailVerified: null,
+              },
+            },
+          ];
+        });
+        return { previous, tempId };
+      }
+
+      return { previous };
+    },
+    onError: (_err, _newMessage, ctx) => {
+      if (ctx?.previous) {
+        utils.chat.getMessages.setData({ chatRoomId }, ctx.previous);
+      }
+    },
     onSuccess: () => {
-      // Clear input after successful send
+      // Clear input after successful send; Pusher event will reconcile/replace temp message
       setText("");
-      // No need to refetch here, Pusher will handle it
     },
   });
 
@@ -64,25 +103,96 @@ export function ChatRoom({
 
     const channel = pusher.subscribe(chatRoomId);
 
-    const handleInvalidate = () => {
-      void utils.chat.getMessages.invalidate({ chatRoomId });
-      void utils.chat.getChatRooms.invalidate();
-    };
+    // Apply updates directly to cache for instant UX (no refetch)
+    channel.bind("new-message", (payload: MessageType & { clientId?: string }) => {
+      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
+        if (!old) return [payload];
+        const exists = old.some((m) => m.id === payload.id);
+        let next = exists
+          ? old.map((m) => (m.id === payload.id ? payload : m))
+          : [...old, payload];
+        // Remove optimistic temp by clientId (preferred), fallback to text/user heuristic
+        next = next.filter((m) => {
+          if (typeof m.id === "string" && m.id.startsWith("temp-")) {
+            if (payload.clientId && m.id === payload.clientId) return false;
+            if (m.text === payload.text && m.userId === payload.user.id) return false;
+          }
+          return true;
+        });
+        return next;
+      });
+      // Update chat list cache in-place (no network)
+      utils.chat.getChatRooms.setData(undefined, (rooms) => {
+        if (!rooms) return rooms;
+        const updated = rooms.map((room) => {
+          if (room.id !== payload.chatRoomId) return room;
+          return {
+            ...room,
+            updatedAt: payload.createdAt,
+            messages: [
+              {
+                id: payload.id,
+                text: payload.text,
+                createdAt: payload.createdAt,
+                isDeleted: false,
+                user: {
+                  id: payload.user.id,
+                  name: payload.user.name,
+                },
+              },
+            ],
+          } as typeof room;
+        });
+        // Sort by updatedAt desc to mirror server ordering
+        updated.sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
+        return updated;
+      });
+      // Scroll down when new message arrives
+      scrollToBottom();
+    });
 
-    channel.bind("new-message", handleInvalidate);
-    channel.bind("edit-message", handleInvalidate);
-    channel.bind("delete-message", handleInvalidate);
+    channel.bind("edit-message", (payload: MessageType) => {
+      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
+        if (!old) return old;
+        return old.map((m) => (m.id === payload.id ? payload : m));
+      });
+    });
+
+    channel.bind("delete-message", (payload: { messageId: string }) => {
+      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
+        if (!old) return old;
+        return old.filter((m) => m.id !== payload.messageId);
+      });
+      // Also update chat list cache last message if it was the deleted one
+      utils.chat.getChatRooms.setData(undefined, (rooms) => {
+        if (!rooms) return rooms;
+        return rooms.map((room) => {
+          if (room.id !== chatRoomId) return room;
+          const last = room.messages[0];
+          if (!last || last.id !== payload.messageId) return room;
+          return {
+            ...room,
+            messages: [],
+          } as typeof room;
+        });
+      });
+    });
 
     return () => {
       pusher.unsubscribe(chatRoomId);
       pusher.disconnect();
     };
-  }, [chatRoomId, utils]);
+    // utils is stable for tRPC, but we avoid resubscribing unnecessarily
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatRoomId]);
 
   const handleSendMessage = (e: FormEvent) => {
     e.preventDefault();
     if (text.trim() && chatRoomId) {
-      sendMessage.mutate({ text, chatRoomId });
+      const clientId = `temp-${Date.now()}`;
+      sendMessage.mutate({ text, chatRoomId, clientId });
     }
   };
 

@@ -128,7 +128,13 @@ export const chatRouter = createTRPCRouter({
   }),
 
   sendMessage: protectedProcedure
-    .input(z.object({ text: z.string().min(1), chatRoomId: z.string() }))
+    .input(
+      z.object({
+        text: z.string().min(1),
+        chatRoomId: z.string(),
+        clientId: z.string().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const message = await ctx.db.message.create({
         data: {
@@ -155,8 +161,11 @@ export const chatRouter = createTRPCRouter({
         data: { updatedAt: new Date() },
       });
 
-      // Trigger Pusher event
-      await pusher.trigger(input.chatRoomId, "new-message", message);
+      // Trigger Pusher event, echo back clientId for precise de-dup on clients
+      await pusher.trigger(input.chatRoomId, "new-message", {
+        ...message,
+        clientId: input.clientId,
+      });
 
       return message;
     }),
@@ -269,7 +278,6 @@ export const chatRouter = createTRPCRouter({
           createdAt: "asc",
         },
         take: input.limit,
-        cacheStrategy: { ttl: 5, swr: 30 }, // Cache for 5s, stale-while-revalidate for 30s
       });
       return messages;
     }),

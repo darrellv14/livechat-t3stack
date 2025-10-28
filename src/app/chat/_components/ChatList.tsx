@@ -16,7 +16,9 @@ import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 import { MessageSquare, Plus } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Pusher from "pusher-js";
+import { env } from "@/env";
 
 interface ChatListProps {
   selectedChatId?: string;
@@ -27,9 +29,8 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
   const { data: session } = useSession();
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const { data: chatRooms, isLoading: loadingChats } =
-    api.chat.getChatRooms.useQuery(undefined, {
-      refetchInterval: 2000,
-    });
+    api.chat.getChatRooms.useQuery();
+  const utils = api.useUtils();
   const { data: users } = api.chat.getUsers.useQuery();
   const createDM = api.chat.getOrCreateDirectMessage.useMutation({
     onSuccess: (chatRoom) => {
@@ -65,6 +66,69 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     if (lastMsg.isDeleted) return "Message deleted";
     return `${lastMsg.user.name}: ${lastMsg.text}`;
   };
+
+  // Subscribe to Pusher for each chat room to keep list in sync without polling
+  useEffect(() => {
+    if (!chatRooms || !env.NEXT_PUBLIC_PUSHER_KEY) return;
+    const pusher = new Pusher(env.NEXT_PUBLIC_PUSHER_KEY, {
+      cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
+    });
+
+    const subscriptions = chatRooms.map((room) => {
+      const ch = pusher.subscribe(room.id);
+      ch.bind("new-message", (payload: {
+        id: string;
+        text: string;
+        createdAt: string | Date;
+        chatRoomId: string;
+        user: { id: string; name: string | null };
+      }) => {
+        utils.chat.getChatRooms.setData(undefined, (rooms) => {
+          if (!rooms) return rooms;
+          const updated = rooms.map((r) => {
+            if (r.id !== payload.chatRoomId) return r;
+            return {
+              ...r,
+              updatedAt: payload.createdAt as Date,
+              messages: [
+                {
+                  id: payload.id,
+                  text: payload.text,
+                  createdAt: payload.createdAt as Date,
+                  isDeleted: false,
+                  user: { id: payload.user.id, name: payload.user.name },
+                },
+              ],
+            } as typeof r;
+          });
+          updated.sort(
+            (a, b) =>
+              new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+          );
+          return updated;
+        });
+      });
+
+      ch.bind("delete-message", (payload: { messageId: string }) => {
+        utils.chat.getChatRooms.setData(undefined, (rooms) => {
+          if (!rooms) return rooms;
+          return rooms.map((r) => {
+            if (r.id !== room.id) return r;
+            const last = r.messages[0];
+            if (!last || last.id !== payload.messageId) return r;
+            return { ...r, messages: [] } as typeof r;
+          });
+        });
+      });
+
+      return ch;
+    });
+
+    return () => {
+      subscriptions.forEach((ch) => pusher.unsubscribe(ch.name));
+      pusher.disconnect();
+    };
+  }, [chatRooms, utils]);
 
   if (loadingChats) {
     return (
