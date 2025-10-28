@@ -4,8 +4,7 @@ import { ChatList } from "@/app/chat/_components/ChatList";
 import { ChatRoom } from "@/app/chat/_components/ChatRoom";
 import { Button } from "@/components/ui/button";
 import { MessageSquare } from "lucide-react";
-import { useSession } from "next-auth/react";
-import Link from "next/link";
+import { useSession, signIn } from "next-auth/react";
 import { useState } from "react";
 
 export const dynamic = "force-dynamic";
@@ -35,9 +34,9 @@ export default function ChatPage() {
           <p className="text-muted-foreground mb-4">
             Connect with friends and colleagues instantly
           </p>
-          <Link href="/api/auth/signin?callbackUrl=/room">
-            <Button>Sign in with Google</Button>
-          </Link>
+          <Button onClick={() => signIn("google", { callbackUrl: "/room" })}>
+            Sign in with Google
+          </Button>
         </div>
       </div>
     );

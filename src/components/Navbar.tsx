@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, MessageSquare, User } from "lucide-react";
-import { signOut, useSession } from "next-auth/react";
+import { signOut, useSession, signIn } from "next-auth/react";
 import Link from "next/link";
 
 export function Navbar() {
@@ -82,7 +82,9 @@ export function Navbar() {
               </DropdownMenu>
             </>
           ) : (
-            <Button onClick={() => signIn("google")}>Sign in</Button>
+            <Button onClick={() => signIn("google", { callbackUrl: "/room" })}>
+              Sign in
+            </Button>
           )}
         </div>
       </div>

@@ -1,3 +1,5 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -6,12 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { auth } from "@/server/auth";
 import { MessageSquare, Shield, Users, Zap } from "lucide-react";
+import { useSession, signIn } from "next-auth/react";
 import Link from "next/link";
 
-export default async function AboutPage() {
-  const session = await auth();
+export default function AboutPage() {
+  const { data: session } = useSession();
 
   return (
     <div className="min-h-[calc(100vh-4rem)]">
@@ -44,11 +46,13 @@ export default async function AboutPage() {
                 </Button>
               </Link>
             ) : (
-              <Link href="/api/auth/signin?callbackUrl=/room">
-                <Button size="lg" className="w-full sm:w-auto">
-                  Get Started Free
-                </Button>
-              </Link>
+              <Button 
+                size="lg" 
+                className="w-full sm:w-auto"
+                onClick={() => signIn("google", { callbackUrl: "/room" })}
+              >
+                Get Started Free
+              </Button>
             )}
             <a
               href="https://github.com/darrellv14/livechat-t3stack"
@@ -178,7 +182,10 @@ export default async function AboutPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
-              <Button size="lg" onClick={() => signIn("google")}>
+              <Button 
+                size="lg"
+                onClick={() => signIn("google", { callbackUrl: "/room" })}
+              >
                 Sign in with Google
               </Button>
             </CardContent>
