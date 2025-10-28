@@ -13,12 +13,12 @@ export const getPusherClient = () => {
   // Configure for lowest-latency websocket transport and disable unused fallbacks/stats
   _pusher = new Pusher(env.NEXT_PUBLIC_PUSHER_KEY, {
     cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
+    // Let the library negotiate ws vs wss based on TLS; only enable websocket transport
     forceTLS: true,
-    // Prefer pure websockets only; avoid xhr fallbacks which add overhead
-    enabledTransports: ["wss"],
+    enabledTransports: ["ws"],
     disabledTransports: ["xhr_streaming", "xhr_polling", "sockjs"],
     // Reduce client-side overhead
-    enableStats: false as unknown as undefined, // pusher-js v8 ignores, kept for backward compat
+    enableStats: false as unknown as undefined,
     activityTimeout: 30000,
   });
 

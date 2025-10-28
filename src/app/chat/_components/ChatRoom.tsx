@@ -10,7 +10,7 @@ import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
-import { useEffect, useRef, useState, type FormEvent, useCallback } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
 import { env } from "@/env";
@@ -35,11 +35,9 @@ export function ChatRoom({
 }) {
   const { data: session, status } = useSession();
   const [text, setText] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const isUserScrollingRef = useRef(false);
+  // Auto-scroll disabled: let users manage their own scroll position
 
   // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
@@ -100,11 +98,6 @@ export function ChatRoom({
           pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
           return { ...data, pages: pagesCopy };
         });
-        
-        // Force scroll to bottom after sending
-        setShouldAutoScroll(true);
-        setTimeout(() => scrollToBottom(), 50);
-        
         return { previous, tempId };
       }
 
@@ -120,46 +113,7 @@ export function ChatRoom({
     },
   });
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
-  // Check if user is at the bottom of the chat
-  const checkIfAtBottom = useCallback(() => {
-    const el = scrollParentRef.current;
-    if (!el) return false;
-    const threshold = 100; // pixels from bottom
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    return isAtBottom;
-  }, []);
-
-  // Handle user scrolling - detect if user manually scrolls
-  useEffect(() => {
-    const el = scrollParentRef.current;
-    if (!el) return;
-
-    const handleScroll = () => {
-      const isAtBottom = checkIfAtBottom();
-      setShouldAutoScroll(isAtBottom);
-      
-      // Detect if user is scrolling up
-      if (!isAtBottom) {
-        isUserScrollingRef.current = true;
-      } else {
-        isUserScrollingRef.current = false;
-      }
-    };
-
-    el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => el.removeEventListener('scroll', handleScroll);
-  }, [checkIfAtBottom]);
-
-  // Only auto-scroll if user is at bottom or just sent a message
-  useEffect(() => {
-    if (shouldAutoScroll && messages.length > 0) {
-      scrollToBottom();
-    }
-  }, [messages.length, shouldAutoScroll, scrollToBottom]);
+  // No auto-scroll logic
 
     // Setup Pusher (singleton client)
   useEffect(() => {
@@ -229,10 +183,6 @@ export function ChatRoom({
         return updated;
       });
       
-      // Only auto-scroll if user is at the bottom or if it's the current user's message
-      if (shouldAutoScroll || payload.user.id === session?.user.id) {
-        setTimeout(() => scrollToBottom(), 50);
-      }
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
@@ -279,9 +229,13 @@ export function ChatRoom({
     });
 
     return () => {
-      unsubscribe(chatRoomId);
+      try {
+        channel.unbind_all();
+      } finally {
+        unsubscribe(chatRoomId);
+      }
     };
-  }, [chatRoomId, utils, scrollToBottom, shouldAutoScroll, session?.user.id]);
+  }, [chatRoomId, utils, session?.user.id]);
 
   // Virtualizer setup for messages
   const rowVirtualizer = useVirtualizer({
@@ -487,7 +441,7 @@ export function ChatRoom({
                 );
               })}
               
-              <div ref={messagesEndRef} />
+              {/* Auto-scroll anchor removed */}
             </div>
           )}
       </div>

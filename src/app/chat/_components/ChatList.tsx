@@ -167,7 +167,13 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     });
 
     return () => {
-      subscriptions.forEach((ch) => unsubscribe(ch.name));
+      subscriptions.forEach((ch) => {
+        try {
+          ch.unbind_all();
+        } finally {
+          unsubscribe(ch.name);
+        }
+      });
     };
   }, [chatRooms, utils]);
 
