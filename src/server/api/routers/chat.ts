@@ -181,7 +181,25 @@ export const chatRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Create message and update room timestamp atomically for consistency
+      // Trigger Pusher event first for low-latency feel, don't await it
+      void pusher.trigger(input.chatRoomId, "new-message", {
+        // Construct a payload that matches the client-side expected type
+        id: `server-temp-${Date.now()}`, // A temporary ID until DB confirms
+        text: input.text,
+        createdAt: new Date(),
+        isEdited: false,
+        isDeleted: false,
+        chatRoomId: input.chatRoomId,
+        userId: ctx.session.user.id,
+        user: {
+          id: ctx.session.user.id,
+          name: ctx.session.user.name,
+          image: ctx.session.user.image,
+        },
+        clientId: input.clientId, // Echo back clientId for de-dup
+      });
+
+      // Atomically create message and update room timestamp in the background
       const [message] = await ctx.db.$transaction([
         ctx.db.message.create({
           data: {
@@ -204,12 +222,6 @@ export const chatRouter = createTRPCRouter({
           data: { updatedAt: new Date() },
         }),
       ]);
-
-      // Trigger Pusher event, echo back clientId for precise de-dup on clients
-      await pusher.trigger(input.chatRoomId, "new-message", {
-        ...message,
-        clientId: input.clientId,
-      });
 
       return message;
     }),

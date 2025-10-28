@@ -124,20 +124,13 @@ export function ChatRoom({
       return { previous };
     },
     onError: (_err, _newMessage, ctx) => {
-      if (ctx?.previous) {
-        utils.chat.getMessagesInfinite.setInfiniteData(
-          { chatRoomId, limit: 50 },
-          () => ctx.previous,
-        );
-              // Scroll to the latest message we just added
-              // Use rAF to ensure DOM updates applied before measuring scrollHeight
-              if (typeof window !== "undefined") {
-                requestAnimationFrame(scrollToBottom);
-              }
-      }
-    },
     onSuccess: () => {
       setText("");
+      // Scroll to the latest message we just added
+      // Use rAF to ensure DOM updates applied before measuring scrollHeight
+      if (typeof window !== "undefined") {
+        requestAnimationFrame(scrollToBottom);
+      }
     },
     onSettled: async () => {
       // Ensure eventual consistency in case a Pusher event is missed
@@ -180,9 +173,8 @@ export function ChatRoom({
             } as unknown as typeof data;
           }
           const pagesCopy = [...data.pages];
-          // Newest messages are on the FIRST page; older pages follow
-          const firstPage = pagesCopy[0]!;
-          const items = firstPage.items ?? [];
+          const lastPage = pagesCopy[pagesCopy.length - 1]!;
+          const items = lastPage.items ?? [];
 
           // Remove temp message if exists
           const filteredItems = items.filter((m) => {
@@ -200,7 +192,7 @@ export function ChatRoom({
             ? filteredItems.map((m) => (m.id === payload.id ? payload : m))
             : [...filteredItems, payload];
 
-          pagesCopy[0] = { ...firstPage, items: nextItems };
+          pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: nextItems };
           return { ...data, pages: pagesCopy };
         },
       );
