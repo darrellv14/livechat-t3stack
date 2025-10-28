@@ -136,30 +136,29 @@ export const chatRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const message = await ctx.db.message.create({
-        data: {
-          text: input.text,
-          chatRoomId: input.chatRoomId,
-          userId: ctx.session.user.id,
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-              emailVerified: true,
+      // Create message and update room timestamp atomically for consistency
+      const [message] = await ctx.db.$transaction([
+        ctx.db.message.create({
+          data: {
+            text: input.text,
+            chatRoomId: input.chatRoomId,
+            userId: ctx.session.user.id,
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
             },
           },
-        },
-      });
-
-      // Update chatRoom updatedAt
-      await ctx.db.chatRoom.update({
-        where: { id: input.chatRoomId },
-        data: { updatedAt: new Date() },
-      });
+        }),
+        ctx.db.chatRoom.update({
+          where: { id: input.chatRoomId },
+          data: { updatedAt: new Date() },
+        }),
+      ]);
 
       // Trigger Pusher event, echo back clientId for precise de-dup on clients
       await pusher.trigger(input.chatRoomId, "new-message", {
@@ -268,9 +267,7 @@ export const chatRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
-              email: true,
               image: true,
-              emailVerified: true,
             },
           },
         },
@@ -280,6 +277,43 @@ export const chatRouter = createTRPCRouter({
         take: input.limit,
       });
       return messages;
+    }),
+
+  // Infinite pagination optimized for chat: returns items ascending by time with a cursor for older messages
+  getMessagesInfinite: protectedProcedure
+    .input(
+      z.object({
+        chatRoomId: z.string(),
+        limit: z.number().optional().default(50),
+        cursor: z.string().optional(), // id of the message to fetch older than
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const take = input.limit;
+
+      // Fetch newest first (desc), then we'll reverse to asc for rendering
+      const messagesDesc = await ctx.db.message.findMany({
+        where: {
+          chatRoomId: input.chatRoomId,
+          isDeleted: false,
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, image: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+        ...(input.cursor
+          ? { cursor: { id: input.cursor }, skip: 1 } // fetch older than cursor
+          : {}),
+      });
+
+      // Reverse to ascending for chat UI
+      const items = messagesDesc.reverse();
+      const nextCursor = items.length === take ? items[0]?.id : undefined; // oldest in this batch
+
+      return { items, nextCursor };
     }),
 
   getOrCreateDefaultRoom: protectedProcedure.query(async ({ ctx }) => {

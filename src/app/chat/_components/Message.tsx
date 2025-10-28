@@ -11,21 +11,25 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
-import type { Message as MessageType, User } from "@prisma/client";
+import type { RouterOutputs } from "@/trpc/react";
 import { Check, Edit2, MoreVertical, Trash2, X } from "lucide-react";
 import type { Session } from "next-auth";
 import { useState } from "react";
 import { toast } from "sonner";
 
+type ChatMessage = RouterOutputs["chat"]["getMessages"][number];
+
 interface MessageProps {
-  message: MessageType & { user: User; isEdited?: boolean };
+  message: ChatMessage;
   session: Session;
   onMessageUpdated?: () => void;
+  decryptText?: (cipher: string) => Promise<string | null>;
 }
 
-export function Message({ message, session, onMessageUpdated }: MessageProps) {
+export function Message({ message, session, onMessageUpdated, decryptText }: MessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
+  const [decrypted, setDecrypted] = useState<string | null>(null);
   const isCurrentUser = message.userId === session.user.id;
   const utils = api.useUtils();
 
@@ -70,6 +74,16 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
     const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
     return message.createdAt > oneMinuteAgo;
   };
+
+  // Try to decrypt if encrypted
+  const isEncrypted = typeof message.text === "string" && message.text.startsWith("enc:");
+  useState(() => {
+    if (isEncrypted && decryptText) {
+      void decryptText(message.text).then((pt) => setDecrypted(pt));
+    } else {
+      setDecrypted(null);
+    }
+  });
 
   return (
     <div
@@ -134,8 +148,8 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
           </div>
         ) : (
           <>
-            <p className="text-sm break-words whitespace-pre-wrap">
-              {message.text}
+            <p className="text-sm wrap-break-word whitespace-pre-wrap">
+              {isEncrypted ? (decrypted ?? "🔒 Encrypted message") : message.text}
             </p>
             {message.isEdited && (
               <p className="mt-1 text-xs opacity-50">(edited)</p>

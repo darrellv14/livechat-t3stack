@@ -1,19 +1,33 @@
-# Create T3 App
+# LiveChat – T3 Stack
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+This is a [T3 Stack](https://create.t3.gg/) real-time chat application.
 
 ## What's next? How do I make an app with this?
 
 We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+If you are not familiar with the different technologies used in this project, please refer to the respective docs.
 
 - [Next.js](https://nextjs.org)
 - [NextAuth.js](https://next-auth.js.org)
 - [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
 - [Tailwind CSS](https://tailwindcss.com)
 - [tRPC](https://trpc.io)
+
+## Performance notes
+
+This app is tuned for lower-latency real-time messaging:
+
+- Single shared Pusher client to avoid multiple WebSocket connections from different components.
+- WebSocket-only transport with TLS to skip xhr fallbacks and reduce overhead.
+- Minimal database selects and compact Pusher payloads.
+- Optimistic UI with client-generated IDs to render messages instantly while reconciling with the server.
+
+Tips for best results:
+
+- Pick the Pusher cluster nearest to your users and set `NEXT_PUBLIC_PUSHER_CLUSTER` accordingly.
+- Ensure your database is in the same region as your app server to minimize DB RTT.
+- Use a fast network and avoid VPNs for the lowest perceived latency.
 
 ## Learn More
 

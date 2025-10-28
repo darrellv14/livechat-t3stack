@@ -7,8 +7,10 @@ import { api } from "@/trpc/react";
 import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import Pusher from "pusher-js";
+import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
+import { deriveKeyFromPassphrase, encryptText, decryptText as decryptTextFn, randomBytes } from "@/lib/crypto";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
 import { env } from "@/env";
 
@@ -24,48 +26,59 @@ export function ChatRoom({
   const { data: session, status } = useSession();
   const [text, setText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
+  const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
+  const [locked, setLocked] = useState(true);
 
-  const { data: messages } = api.chat.getMessages.useQuery(
-    { chatRoomId },
+  const {
+    data: pages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    status: msgStatus,
+  } = api.chat.getMessagesInfinite.useInfiniteQuery(
+    { chatRoomId, limit: 50 },
     {
       enabled: !!chatRoomId && !!session,
-      // Disable polling now that we have WebSockets
-      refetchInterval: false,
+      getNextPageParam: (last) => last.nextCursor,
       refetchOnWindowFocus: false,
     },
   );
 
+  const messages = pages?.pages.flatMap((p) => p.items) ?? [];
+
   const sendMessage = api.chat.sendMessage.useMutation({
     // Re-introduce a minimal optimistic update for instant UX
     onMutate: async (newMessage) => {
-      await utils.chat.getMessages.cancel({ chatRoomId });
-      const previous = utils.chat.getMessages.getData({ chatRoomId });
+      await utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
+      const previous = utils.chat.getMessagesInfinite.getInfiniteData({ chatRoomId, limit: 50 });
 
       if (session?.user) {
         const tempId = newMessage.clientId ?? `temp-${Date.now()}`;
-        utils.chat.getMessages.setData({ chatRoomId }, (old) => {
-          if (!old) return old;
-          return [
-            ...old,
-            {
-              id: tempId,
-              text: newMessage.text,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              isEdited: false,
-              isDeleted: false,
-              chatRoomId: newMessage.chatRoomId,
-              userId: session.user.id,
-              user: {
-                id: session.user.id,
-                name: session.user.name ?? null,
-                email: session.user.email ?? null,
-                image: session.user.image ?? null,
-                emailVerified: null,
-              },
-            },
-          ];
+        const tempMsg = {
+          id: tempId,
+          text: newMessage.text,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isEdited: false,
+          isDeleted: false,
+          chatRoomId: newMessage.chatRoomId,
+          userId: session.user.id,
+          user: {
+            id: session.user.id,
+            name: session.user.name ?? null,
+            image: session.user.image ?? null,
+          },
+        } as MessageType;
+        utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
+          if (!data || data.pages.length === 0) {
+            return { pages: [{ items: [tempMsg], nextCursor: undefined }], pageParams: [undefined] } as unknown as typeof data;
+          }
+          const pagesCopy = [...data.pages];
+          const last = pagesCopy[pagesCopy.length - 1]!;
+          pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
+          return { ...data, pages: pagesCopy };
         });
         return { previous, tempId };
       }
@@ -74,7 +87,7 @@ export function ChatRoom({
     },
     onError: (_err, _newMessage, ctx) => {
       if (ctx?.previous) {
-        utils.chat.getMessages.setData({ chatRoomId }, ctx.previous);
+        utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, () => ctx.previous);
       }
     },
     onSuccess: () => {
@@ -89,37 +102,45 @@ export function ChatRoom({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages.length]);
 
-  // Setup Pusher
+  // Setup Pusher (singleton client)
   useEffect(() => {
     if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY) {
       return;
     }
 
-    const pusher = new Pusher(env.NEXT_PUBLIC_PUSHER_KEY, {
-      cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
-    });
-
-    const channel = pusher.subscribe(chatRoomId);
+    // Ensure client is initialized
+    getPusherClient();
+    const channel = subscribe(chatRoomId);
 
     // Apply updates directly to cache for instant UX (no refetch)
-    channel.bind("new-message", (payload: MessageType & { clientId?: string }) => {
-      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
-        if (!old) return [payload];
-        const exists = old.some((m) => m.id === payload.id);
-        let next = exists
-          ? old.map((m) => (m.id === payload.id ? payload : m))
-          : [...old, payload];
-        // Remove optimistic temp by clientId (preferred), fallback to text/user heuristic
-        next = next.filter((m) => {
+  type EventMessage = Omit<MessageType, "user"> & { user: { id: string; name: string | null; image: string | null } } & { clientId?: string };
+  channel.bind("new-message", (payload: EventMessage) => {
+      // Update infinite cache (append to newest page)
+      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
+        if (!data) {
+          return {
+            pages: [{ items: [payload], nextCursor: undefined }],
+            pageParams: [undefined],
+          } as unknown as typeof data;
+        }
+        // Append to the last page
+        const pagesCopy = [...data.pages];
+        const lastPage = pagesCopy[pagesCopy.length - 1]!;
+        const items = lastPage.items ?? [];
+        const exists = items.some((m) => m.id === payload.id);
+        const nextItems = exists ? items.map((m) => (m.id === payload.id ? payload : m)) : [...items, payload];
+        // Remove optimistic temp
+        const deduped = nextItems.filter((m) => {
           if (typeof m.id === "string" && m.id.startsWith("temp-")) {
             if (payload.clientId && m.id === payload.clientId) return false;
             if (m.text === payload.text && m.userId === payload.user.id) return false;
           }
           return true;
         });
-        return next;
+        pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: deduped };
+        return { ...data, pages: pagesCopy };
       });
       // Update chat list cache in-place (no network)
       utils.chat.getChatRooms.setData(undefined, (rooms) => {
@@ -154,16 +175,28 @@ export function ChatRoom({
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
-      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
-        if (!old) return old;
-        return old.map((m) => (m.id === payload.id ? payload : m));
+      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
+        if (!data) return data;
+        return {
+          ...data,
+          pages: data.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) => (m.id === payload.id ? payload : m)),
+          })),
+        };
       });
     });
 
     channel.bind("delete-message", (payload: { messageId: string }) => {
-      utils.chat.getMessages.setData({ chatRoomId }, (old) => {
-        if (!old) return old;
-        return old.filter((m) => m.id !== payload.messageId);
+      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
+        if (!data) return data;
+        return {
+          ...data,
+          pages: data.pages.map((p) => ({
+            ...p,
+            items: p.items.filter((m) => m.id !== payload.messageId),
+          })),
+        };
       });
       // Also update chat list cache last message if it was the deleted one
       utils.chat.getChatRooms.setData(undefined, (rooms) => {
@@ -181,18 +214,78 @@ export function ChatRoom({
     });
 
     return () => {
-      pusher.unsubscribe(chatRoomId);
-      pusher.disconnect();
+      unsubscribe(chatRoomId);
     };
     // utils is stable for tRPC, but we avoid resubscribing unnecessarily
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatRoomId]);
 
-  const handleSendMessage = (e: FormEvent) => {
+  // Virtualizer setup for messages
+  const rowVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 72,
+    overscan: 10,
+  });
+
+  // Infinite scroll upwards when near top
+  useEffect(() => {
+    const el = scrollParentRef.current;
+    if (!el) return;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (el.scrollTop < 200 && hasNextPage && !isFetchingNextPage) {
+          const prevHeight = el.scrollHeight;
+          void fetchNextPage().then(() => {
+            // maintain scroll position so content doesn't jump
+            const newHeight = el.scrollHeight;
+            el.scrollTop += newHeight - prevHeight;
+          });
+        }
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Decrypt helper passed to Message components
+  const decryptHelper = roomKey
+    ? async (cipher: string) => decryptTextFn(roomKey, cipher)
+    : async () => null;
+
+  // Key management: prompt for passphrase to derive key
+  const handleSetKey = async () => {
+    const pass = prompt("Enter shared passphrase for this room:");
+    if (!pass) return;
+    // If salt exists reuse, else create
+    const lsKey = `chat-salt:${chatRoomId}`;
+    let saltB64 = localStorage.getItem(lsKey);
+    if (!saltB64) {
+      const salt = randomBytes(16);
+      saltB64 = btoa(String.fromCharCode(...salt));
+      localStorage.setItem(lsKey, saltB64);
+    }
+    const salt = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
+    const key = await deriveKeyFromPassphrase(pass, salt);
+    setRoomKey(key);
+    setLocked(false);
+  };
+
+  const handleLock = () => {
+    setRoomKey(null);
+    setLocked(true);
+  };
+
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (text.trim() && chatRoomId) {
       const clientId = `temp-${Date.now()}`;
-      sendMessage.mutate({ text, chatRoomId, clientId });
+      const outgoing = roomKey ? await encryptText(roomKey, text.trim()) : text.trim();
+      sendMessage.mutate({ text: outgoing, chatRoomId, clientId });
     }
   };
 
@@ -200,11 +293,11 @@ export function ChatRoom({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage(e);
+  void handleSendMessage(e);
     }
   };
 
-  if (status === "loading") {
+  if (status === "loading" || msgStatus === "pending") {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-muted-foreground">Loading session...</div>
@@ -251,27 +344,53 @@ export function ChatRoom({
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
           <span className="text-muted-foreground text-xs">Live</span>
+          <Button size="sm" variant="ghost" onClick={locked ? handleSetKey : handleLock}>
+            {locked ? "Unlock" : "Lock"}
+          </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-4">
-          {!messages || messages.length === 0 ? (
+      <div className="flex-1 overflow-y-auto p-4" ref={scrollParentRef}>
+        {!messages || messages.length === 0 ? (
             <div className="text-muted-foreground flex h-full items-center justify-center">
               No messages yet. Start the conversation!
             </div>
           ) : (
-            messages.map((msg: MessageType) => (
-              <Message
-                key={msg.id}
-                message={msg}
-                session={session}
-                onMessageUpdated={() => void utils.chat.getMessages.invalidate({ chatRoomId })}
-              />
-            ))
+            <div
+              style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+            >
+              
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const msg = messages[vi.index] as MessageType;
+                return (
+                  <div
+                    key={msg.id}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={vi.index}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vi.start}px)`,
+                    }}
+                    className="mb-4"
+                  >
+                    <Message
+                      message={msg}
+                      session={session}
+                      decryptText={decryptHelper}
+                      onMessageUpdated={() =>
+                        void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 })
+                      }
+                    />
+                  </div>
+                );
+              })}
+              
+              <div ref={messagesEndRef} />
+            </div>
           )}
-          <div ref={messagesEndRef} />
-        </div>
       </div>
 
       <div className="border-t p-4">

@@ -17,7 +17,7 @@ import { api } from "@/trpc/react";
 import { MessageSquare, Plus } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import Pusher from "pusher-js";
+import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
 import { env } from "@/env";
 
 interface ChatListProps {
@@ -64,18 +64,20 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     const lastMsg = chat.messages[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    return `${lastMsg.user.name}: ${lastMsg.text}`;
+    const text = typeof lastMsg.text === "string" && lastMsg.text.startsWith("enc:")
+      ? "🔒 Encrypted message"
+      : lastMsg.text;
+    return `${lastMsg.user.name}: ${text}`;
   };
 
   // Subscribe to Pusher for each chat room to keep list in sync without polling
   useEffect(() => {
     if (!chatRooms || !env.NEXT_PUBLIC_PUSHER_KEY) return;
-    const pusher = new Pusher(env.NEXT_PUBLIC_PUSHER_KEY, {
-      cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
-    });
+    // ensure client initialized once
+    getPusherClient();
 
     const subscriptions = chatRooms.map((room) => {
-      const ch = pusher.subscribe(room.id);
+      const ch = subscribe(room.id);
       ch.bind("new-message", (payload: {
         id: string;
         text: string;
@@ -125,8 +127,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     });
 
     return () => {
-      subscriptions.forEach((ch) => pusher.unsubscribe(ch.name));
-      pusher.disconnect();
+      subscriptions.forEach((ch) => unsubscribe(ch.name));
     };
   }, [chatRooms, utils]);
 

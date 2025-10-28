@@ -7,6 +7,7 @@ import { Geist } from "next/font/google";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { TRPCReactProvider } from "@/trpc/react";
+import { env } from "@/env";
 
 export const metadata: Metadata = {
   title: "LiveChat - Real-time Messaging",
@@ -24,6 +25,16 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
+      <head>
+        {/* Preconnect to Pusher WebSocket endpoint to shave off DNS+TLS time */}
+        {env.NEXT_PUBLIC_PUSHER_CLUSTER && (
+          <link
+            rel="preconnect"
+            href={`https://ws-${env.NEXT_PUBLIC_PUSHER_CLUSTER}.pusher.com`}
+            crossOrigin="anonymous"
+          />
+        )}
+      </head>
       <body>
         <SessionProvider>
           <TRPCReactProvider>
