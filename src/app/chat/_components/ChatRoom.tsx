@@ -112,6 +112,13 @@ export function ChatRoom({
     onSuccess: () => {
       setText("");
     },
+    onSettled: async () => {
+      // Ensure eventual consistency in case a Pusher event is missed
+      await Promise.all([
+        utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 }),
+        utils.chat.getChatRooms.invalidate(),
+      ]);
+    },
   });
 
   // No auto-scroll logic
@@ -127,6 +134,11 @@ export function ChatRoom({
 
   type EventMessage = Omit<MessageType, "user"> & { user: { id: string; name: string | null; image: string | null } } & { clientId?: string };
   channel.bind("new-message", (payload: EventMessage) => {
+      // Debug aid: observe real-time events in the console during development
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.debug("[Pusher] new-message", { room: chatRoomId, id: payload.id });
+      }
       utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
         if (!data) {
           return {
