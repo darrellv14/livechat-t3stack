@@ -220,7 +220,7 @@ export function ChatRoom({
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => 72,
+    estimateSize: () => 80,
     overscan: 10,
   });
 
@@ -314,7 +314,7 @@ export function ChatRoom({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4" ref={scrollParentRef}>
+      <div className="flex-1 overflow-y-auto p-4 bg-muted/20" ref={scrollParentRef}>
         {!messages || messages.length === 0 ? (
             <div className="text-muted-foreground flex h-full items-center justify-center">
               No messages yet. Start the conversation!
@@ -338,7 +338,7 @@ export function ChatRoom({
                       width: "100%",
                       transform: `translateY(${vi.start}px)`,
                     }}
-                    className="pb-2"
+                    className="px-2 py-1"
                   >
                     <Message
                       message={msg}

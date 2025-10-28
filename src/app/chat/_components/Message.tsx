@@ -89,12 +89,13 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
   return (
     <div
       className={cn(
-        "flex items-end gap-2",
-        isCurrentUser ? "flex-row-reverse" : "flex-row",
+        "flex items-start gap-2 mb-1",
+        isCurrentUser ? "justify-end" : "justify-start",
       )}
     >
+      {/* Avatar untuk sender (kiri) */}
       {!isCurrentUser && (
-        <Avatar className="h-8 w-8">
+        <Avatar className="h-8 w-8 shrink-0 mt-0.5">
           <AvatarImage
             src={message.user.image ?? ""}
             alt={message.user.name ?? "User"}
@@ -105,14 +106,17 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
         </Avatar>
       )}
 
+      {/* Bubble Chat */}
       <div
         className={cn(
-          "group relative max-w-[70%] rounded-lg px-4 py-2",
-          isCurrentUser ? "bg-primary text-primary-foreground" : "bg-muted",
+          "group relative max-w-[75%] sm:max-w-[70%] rounded-2xl px-3 py-2 shadow-sm",
+          isCurrentUser 
+            ? "bg-primary text-primary-foreground rounded-tr-sm" 
+            : "bg-muted rounded-tl-sm",
         )}
       >
         {!isCurrentUser && (
-          <p className="mb-1 text-xs font-semibold opacity-70">
+          <p className="mb-0.5 text-xs font-semibold opacity-80">
             {message.user.name}
           </p>
         )}
@@ -126,7 +130,10 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
                 if (e.key === "Enter") handleEdit();
                 if (e.key === "Escape") setIsEditing(false);
               }}
-              className="h-8 text-sm"
+              className={cn(
+                "h-8 text-sm",
+                isCurrentUser && "text-primary-foreground"
+              )}
               autoFocus
             />
             <Button
@@ -134,7 +141,10 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
               variant="ghost"
               onClick={handleEdit}
               disabled={editMutation.isPending}
-              className="h-8 w-8 p-0"
+              className={cn(
+                "h-8 w-8 p-0",
+                isCurrentUser && "text-primary-foreground hover:bg-primary/90"
+              )}
             >
               <Check className="h-4 w-4" />
             </Button>
@@ -142,7 +152,10 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
               size="sm"
               variant="ghost"
               onClick={() => setIsEditing(false)}
-              className="h-8 w-8 p-0"
+              className={cn(
+                "h-8 w-8 p-0",
+                isCurrentUser && "text-primary-foreground hover:bg-primary/90"
+              )}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -150,7 +163,7 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
         ) : (
           <>
             <p className={cn(
-              "text-sm wrap-break-word whitespace-pre-wrap text-justify",
+              "text-sm wrap-break-word whitespace-pre-wrap",
               !expanded && showReadMore && "line-clamp-6",
             )}>
               {content}
@@ -161,15 +174,25 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
                 onClick={() => setExpanded((e) => !e)}
                 className={cn(
                   "mt-1 text-xs underline",
-                  isCurrentUser ? "opacity-90" : "opacity-70",
+                  isCurrentUser ? "opacity-90 hover:opacity-100" : "opacity-70 hover:opacity-90",
                 )}
               >
                 {expanded ? "Show less" : "Read more"}
               </button>
             )}
-            {message.isEdited && (
-              <p className="mt-1 text-xs opacity-50">(edited)</p>
-            )}
+            
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <p className={cn(
+                "text-[10px] leading-none",
+                isCurrentUser ? "opacity-70" : "opacity-60"
+              )}>
+                {new Date(message.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {message.isEdited && " • edited"}
+              </p>
+            </div>
           </>
         )}
 
@@ -179,9 +202,13 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="absolute -top-2 right-0 h-6 w-6 p-0 opacity-0 transition-opacity group-hover:opacity-100"
+                className={cn(
+                  "absolute -top-2 -right-2 h-7 w-7 p-0 rounded-full",
+                  "opacity-0 transition-opacity group-hover:opacity-100",
+                  "bg-background/80 hover:bg-background shadow-md"
+                )}
               >
-                <MoreVertical className="h-3 w-3" />
+                <MoreVertical className="h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -196,17 +223,11 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-
-        <p className="mt-1 text-xs opacity-50">
-          {new Date(message.createdAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
       </div>
 
+      {/* Avatar untuk current user (kanan) */}
       {isCurrentUser && (
-        <Avatar className="h-8 w-8">
+        <Avatar className="h-8 w-8 shrink-0 mt-0.5">
           <AvatarImage
             src={session.user.image ?? ""}
             alt={session.user.name ?? "User"}
