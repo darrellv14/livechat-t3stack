@@ -26,10 +26,10 @@ type ChatListMessage = {
   user: { id: string; name: string | null };
 };
 
-export function ChatRoom({ 
-  chatRoomId, 
-  onBack 
-}: { 
+export function ChatRoom({
+  chatRoomId,
+  onBack,
+}: {
   chatRoomId: string;
   onBack?: () => void;
 }) {
@@ -42,10 +42,10 @@ export function ChatRoom({
   // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
     { chatRoomId },
-    { 
+    {
       enabled: !!chatRoomId,
       refetchOnWindowFocus: false,
-    }
+    },
   );
 
   const {
@@ -71,7 +71,10 @@ export function ChatRoom({
     onMutate: (newMessage) => {
       // Keep UI instantaneous: don't await cancel
       void utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
-      const previous = utils.chat.getMessagesInfinite.getInfiniteData({ chatRoomId, limit: 50 });
+      const previous = utils.chat.getMessagesInfinite.getInfiniteData({
+        chatRoomId,
+        limit: 50,
+      });
 
       if (session?.user) {
         const tempId = newMessage.clientId ?? `temp-${Date.now()}`;
@@ -90,15 +93,24 @@ export function ChatRoom({
             image: session.user.image ?? null,
           },
         } as MessageType;
-        utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
-          if (!data || data.pages.length === 0) {
-            return { pages: [{ items: [tempMsg], nextCursor: undefined }], pageParams: [undefined] } as unknown as typeof data;
-          }
-          const pagesCopy = [...data.pages];
-          const last = pagesCopy[pagesCopy.length - 1]!;
-          pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
-          return { ...data, pages: pagesCopy };
-        });
+        utils.chat.getMessagesInfinite.setInfiniteData(
+          { chatRoomId, limit: 50 },
+          (data) => {
+            if (!data || data.pages.length === 0) {
+              return {
+                pages: [{ items: [tempMsg], nextCursor: undefined }],
+                pageParams: [undefined],
+              } as unknown as typeof data;
+            }
+            const pagesCopy = [...data.pages];
+            const last = pagesCopy[pagesCopy.length - 1]!;
+            pagesCopy[pagesCopy.length - 1] = {
+              ...last,
+              items: [...last.items, tempMsg],
+            };
+            return { ...data, pages: pagesCopy };
+          },
+        );
         return { previous, tempId };
       }
 
@@ -106,7 +118,10 @@ export function ChatRoom({
     },
     onError: (_err, _newMessage, ctx) => {
       if (ctx?.previous) {
-        utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, () => ctx.previous);
+        utils.chat.getMessagesInfinite.setInfiniteData(
+          { chatRoomId, limit: 50 },
+          () => ctx.previous,
+        );
       }
     },
     onSuccess: () => {
@@ -123,7 +138,7 @@ export function ChatRoom({
 
   // No auto-scroll logic
 
-    // Setup Pusher (singleton client)
+  // Setup Pusher (singleton client)
   useEffect(() => {
     if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY) {
       return;
@@ -132,113 +147,136 @@ export function ChatRoom({
     getPusherClient();
     const channel = subscribe(chatRoomId);
 
-  type EventMessage = Omit<MessageType, "user"> & { user: { id: string; name: string | null; image: string | null } } & { clientId?: string };
-  channel.bind("new-message", (payload: EventMessage) => {
+    type EventMessage = Omit<MessageType, "user"> & {
+      user: { id: string; name: string | null; image: string | null };
+    } & { clientId?: string };
+    channel.bind("new-message", (payload: EventMessage) => {
       // Debug aid: observe real-time events in the console during development
       if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.debug("[Pusher] new-message", { room: chatRoomId, id: payload.id });
+        console.debug("[Pusher] new-message", {
+          room: chatRoomId,
+          id: payload.id,
+        });
       }
-      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
-        if (!data) {
-          return {
-            pages: [{ items: [payload], nextCursor: undefined }],
-            pageParams: [undefined],
-          } as unknown as typeof data;
-        }
-        const pagesCopy = [...data.pages];
-        const lastPage = pagesCopy[pagesCopy.length - 1]!;
-        const items = lastPage.items ?? [];
-        
-        // Remove temp message if exists
-        const filteredItems = items.filter((m) => {
-          if (typeof m.id === "string" && m.id.startsWith("temp-")) {
-            if (payload.clientId && m.id === payload.clientId) return false;
-            if (m.text === payload.text && m.userId === payload.user.id) return false;
+      utils.chat.getMessagesInfinite.setInfiniteData(
+        { chatRoomId, limit: 50 },
+        (data) => {
+          if (!data) {
+            return {
+              pages: [{ items: [payload], nextCursor: undefined }],
+              pageParams: [undefined],
+            } as unknown as typeof data;
           }
-          return true;
-        });
-        
-        // Check if message already exists
-        const exists = filteredItems.some((m) => m.id === payload.id);
-        const nextItems = exists 
-          ? filteredItems.map((m) => (m.id === payload.id ? payload : m)) 
-          : [...filteredItems, payload];
-        
-        pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: nextItems };
-        return { ...data, pages: pagesCopy };
-      });
-      
-      utils.chat.getChatRooms.setData(undefined, (rooms: ChatListRooms | undefined) => {
-        if (!rooms) return rooms;
-        const updated = rooms.map((room: ChatListRoomItem) => {
-          if (room.id !== payload.chatRoomId) return room;
-          return {
-            ...room,
-            updatedAt: payload.createdAt,
-            messages: [
-              {
-                id: payload.id,
-                text: payload.text,
-                createdAt: payload.createdAt,
-                isDeleted: false,
-                user: {
-                  id: payload.user.id,
-                  name: payload.user.name,
+          const pagesCopy = [...data.pages];
+          // Newest messages are on the FIRST page; older pages follow
+          const firstPage = pagesCopy[0]!;
+          const items = firstPage.items ?? [];
+
+          // Remove temp message if exists
+          const filteredItems = items.filter((m) => {
+            if (typeof m.id === "string" && m.id.startsWith("temp-")) {
+              if (payload.clientId && m.id === payload.clientId) return false;
+              if (m.text === payload.text && m.userId === payload.user.id)
+                return false;
+            }
+            return true;
+          });
+
+          // Check if message already exists
+          const exists = filteredItems.some((m) => m.id === payload.id);
+          const nextItems = exists
+            ? filteredItems.map((m) => (m.id === payload.id ? payload : m))
+            : [...filteredItems, payload];
+
+          pagesCopy[0] = { ...firstPage, items: nextItems };
+          return { ...data, pages: pagesCopy };
+        },
+      );
+
+      utils.chat.getChatRooms.setData(
+        undefined,
+        (rooms: ChatListRooms | undefined) => {
+          if (!rooms) return rooms;
+          const updated = rooms.map((room: ChatListRoomItem) => {
+            if (room.id !== payload.chatRoomId) return room;
+            return {
+              ...room,
+              updatedAt: payload.createdAt,
+              messages: [
+                {
+                  id: payload.id,
+                  text: payload.text,
+                  createdAt: payload.createdAt,
+                  isDeleted: false,
+                  user: {
+                    id: payload.user.id,
+                    name: payload.user.name,
+                  },
                 },
-              },
-            ],
-          };
-        });
-        updated.sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        );
-        return updated;
-      });
-      
+              ],
+            };
+          });
+          updated.sort(
+            (a, b) =>
+              new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+          );
+          return updated;
+        },
+      );
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
-      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
-        if (!data) return data;
-        return {
-          ...data,
-          pages: data.pages.map((p) => ({
-            ...p,
-            items: p.items.map((m) => (m.id === payload.id ? payload : m)),
-          })),
-        };
-      });
+      utils.chat.getMessagesInfinite.setInfiniteData(
+        { chatRoomId, limit: 50 },
+        (data) => {
+          if (!data) return data;
+          return {
+            ...data,
+            pages: data.pages.map((p) => ({
+              ...p,
+              items: p.items.map((m) => (m.id === payload.id ? payload : m)),
+            })),
+          };
+        },
+      );
     });
 
     channel.bind("delete-message", (payload: { messageId: string }) => {
-      utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
-        if (!data) return data;
-        return {
-          ...data,
-          pages: data.pages.map((p) => ({
-            ...p,
-            items: p.items.filter((m) => m.id !== payload.messageId),
-          })),
-        };
-      });
-      // Also update chat list cache last message if it was the deleted one
-      utils.chat.getChatRooms.setData(undefined, (rooms: ChatListRooms | undefined) => {
-        if (!rooms) return rooms;
-        return rooms.map((room: ChatListRoomItem) => {
-          if (room.id !== chatRoomId) return room;
-          const roomWithMsgs = room as Partial<{ messages?: ChatListMessage[] }>;
-          const msgs: ChatListMessage[] = Array.isArray(roomWithMsgs.messages)
-            ? roomWithMsgs.messages
-            : [];
-          const last: ChatListMessage | undefined = msgs[0];
-          if (!last || last.id !== payload.messageId) return room;
+      utils.chat.getMessagesInfinite.setInfiniteData(
+        { chatRoomId, limit: 50 },
+        (data) => {
+          if (!data) return data;
           return {
-            ...room,
-            messages: [],
+            ...data,
+            pages: data.pages.map((p) => ({
+              ...p,
+              items: p.items.filter((m) => m.id !== payload.messageId),
+            })),
           };
-        });
-      });
+        },
+      );
+      // Also update chat list cache last message if it was the deleted one
+      utils.chat.getChatRooms.setData(
+        undefined,
+        (rooms: ChatListRooms | undefined) => {
+          if (!rooms) return rooms;
+          return rooms.map((room: ChatListRoomItem) => {
+            if (room.id !== chatRoomId) return room;
+            const roomWithMsgs = room as Partial<{
+              messages?: ChatListMessage[];
+            }>;
+            const msgs: ChatListMessage[] = Array.isArray(roomWithMsgs.messages)
+              ? roomWithMsgs.messages
+              : [];
+            const last: ChatListMessage | undefined = msgs[0];
+            if (!last || last.id !== payload.messageId) return room;
+            return {
+              ...room,
+              messages: [],
+            };
+          });
+        },
+      );
     });
 
     return () => {
@@ -294,7 +332,7 @@ export function ChatRoom({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-  void handleSendMessage(e);
+      void handleSendMessage(e);
     }
   };
 
@@ -339,10 +377,19 @@ export function ChatRoom({
     }
 
     // For DM, show the other user's info
-    let otherUser: { id: string; name: string | null; image: string | null; lastSeen: Date | null } | undefined;
+    let otherUser:
+      | {
+          id: string;
+          name: string | null;
+          image: string | null;
+          lastSeen: Date | null;
+        }
+      | undefined;
     for (const u of chatRoom.users) {
       if (u?.id && u.id !== session.user.id) {
-        otherUser = u as typeof otherUser extends undefined ? never : NonNullable<typeof otherUser>;
+        otherUser = u as typeof otherUser extends undefined
+          ? never
+          : NonNullable<typeof otherUser>;
         break;
       }
     }
@@ -356,14 +403,14 @@ export function ChatRoom({
   };
 
   const chatInfo = getChatInfo();
-  
+
   const getLastSeenText = (): string => {
     if (!chatInfo.lastSeen) return "Offline";
     const lastSeen = new Date(chatInfo.lastSeen);
     const now = new Date();
     const diffMs = now.getTime() - lastSeen.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     if (diffMins < 1) return "Online";
     if (diffMins < 60) return `Active ${diffMins}m ago`;
     const diffHours = Math.floor(diffMins / 60);
@@ -386,7 +433,7 @@ export function ChatRoom({
             <ArrowLeft className="h-5 w-5" />
           </Button>
         )}
-        
+
         {/* Profile Picture */}
         <Avatar className="h-10 w-10 shrink-0">
           <AvatarImage src={chatInfo.avatar ?? ""} alt={chatInfo.name} />
@@ -394,69 +441,80 @@ export function ChatRoom({
             {chatInfo.name.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        
+
         {/* Name and Status */}
-        <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold truncate">{chatInfo.name}</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold">{chatInfo.name}</h2>
           <div className="flex items-center gap-1.5">
-            <div className={cn(
-              "h-2 w-2 rounded-full",
-              getLastSeenText() === "Online" ? "bg-green-500 animate-pulse" : "bg-gray-400"
-            )} />
-            <p className="text-muted-foreground text-xs">
-              {getLastSeenText()}
-            </p>
+            <div
+              className={cn(
+                "h-2 w-2 rounded-full",
+                getLastSeenText() === "Online"
+                  ? "animate-pulse bg-green-500"
+                  : "bg-gray-400",
+              )}
+            />
+            <p className="text-muted-foreground text-xs">{getLastSeenText()}</p>
           </div>
         </div>
-        
+
         {/* Message count */}
-        <div className="text-right shrink-0">
+        <div className="shrink-0 text-right">
           <p className="text-muted-foreground text-xs">
             {messages?.length ?? 0} messages
           </p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-muted/20" ref={scrollParentRef}>
+      <div
+        className="bg-muted/20 flex-1 overflow-y-auto p-4"
+        ref={scrollParentRef}
+      >
         {!messages || messages.length === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center">
-              No messages yet. Start the conversation!
-            </div>
-          ) : (
-            <div
-              style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
-            >
-              {rowVirtualizer.getVirtualItems().map((vi) => {
-                const msg = messages[vi.index] as MessageType;
-                return (
-                  <div
-                    key={msg.id}
-                    ref={(el) => {
-                      if (el) rowVirtualizer.measureElement(el);
-                    }}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${vi.start}px)`,
-                    }}
-                    className="px-2 py-1"
-                  >
-                    <Message
-                      message={msg}
-                      session={session}
-                      onMessageUpdated={() =>
-                        void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 })
-                      }
-                    />
-                  </div>
-                );
-              })}
-              
-              {/* Auto-scroll anchor removed */}
-            </div>
-          )}
+          <div className="text-muted-foreground flex h-full items-center justify-center">
+            No messages yet. Start the conversation!
+          </div>
+        ) : (
+          <div
+            style={{
+              height: rowVirtualizer.getTotalSize(),
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((vi) => {
+              const msg = messages[vi.index] as MessageType;
+              return (
+                <div
+                  key={msg.id}
+                  ref={(el) => {
+                    if (el) rowVirtualizer.measureElement(el);
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${vi.start}px)`,
+                  }}
+                  className="px-2 py-1"
+                >
+                  <Message
+                    message={msg}
+                    session={session}
+                    onMessageUpdated={() =>
+                      void utils.chat.getMessagesInfinite.invalidate({
+                        chatRoomId,
+                        limit: 50,
+                      })
+                    }
+                  />
+                </div>
+              );
+            })}
+
+            {/* Auto-scroll anchor removed */}
+          </div>
+        )}
       </div>
 
       <div className="border-t p-4">
