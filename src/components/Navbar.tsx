@@ -18,8 +18,8 @@ export function Navbar() {
   const { data: session } = useSession();
 
   return (
-    <nav className="bg-background border-b">
-      <div className="container mx-auto flex h-16 items-center justify-between px-4">
+    <nav className="bg-background border-b w-full">
+      <div className="flex h-16 w-full items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2 text-xl font-bold">
           <MessageSquare className="text-primary h-6 w-6" />
           <span>LiveChat</span>

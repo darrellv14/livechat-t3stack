@@ -38,6 +38,13 @@ export function ChatRoom({
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
   // Auto-scroll disabled: let users manage their own scroll position
+  const scrollToBottom = () => {
+    const el = scrollParentRef.current;
+    if (el) {
+      // Immediately jump to bottom after sending
+      el.scrollTop = el.scrollHeight;
+    }
+  };
 
   // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
@@ -122,6 +129,11 @@ export function ChatRoom({
           { chatRoomId, limit: 50 },
           () => ctx.previous,
         );
+              // Scroll to the latest message we just added
+              // Use rAF to ensure DOM updates applied before measuring scrollHeight
+              if (typeof window !== "undefined") {
+                requestAnimationFrame(scrollToBottom);
+              }
       }
     },
     onSuccess: () => {
@@ -150,7 +162,7 @@ export function ChatRoom({
     type EventMessage = Omit<MessageType, "user"> & {
       user: { id: string; name: string | null; image: string | null };
     } & { clientId?: string };
-    channel.bind("new-message", (payload: EventMessage) => {
+  channel.bind("new-message", (payload: EventMessage) => {
       // Debug aid: observe real-time events in the console during development
       if (process.env.NODE_ENV !== "production") {
         console.debug("[Pusher] new-message", {
@@ -192,6 +204,16 @@ export function ChatRoom({
           return { ...data, pages: pagesCopy };
         },
       );
+
+      // If user is already near the bottom, keep them at the newest message
+      const el = scrollParentRef.current;
+      if (el) {
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distanceFromBottom < 64) {
+          // Slight delay to allow DOM to paint
+          requestAnimationFrame(scrollToBottom);
+        }
+      }
 
       utils.chat.getChatRooms.setData(
         undefined,
