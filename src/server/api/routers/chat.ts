@@ -339,6 +339,12 @@ export const chatRouter = createTRPCRouter({
         replyTo: message.replyTo
       });
 
+      // Update the user's lastSeen timestamp
+      await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { lastSeen: new Date() },
+      });
+
       // Also notify all participants via their user channel so that devices not subscribed to the room yet can update their chat list instantly
       const roomWithUsers = await ctx.db.chatRoom.findUnique({
         where: { id: input.chatRoomId },

@@ -10,15 +10,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input as TextInput } from "@/components/ui/input";
-import { Input } from "@/components/ui/input";
+import { Input, Input as TextInput } from "@/components/ui/input";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
 import { ArrowLeft, Send, Settings, X as XIcon } from "lucide-react";
 import type { Session } from "next-auth";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Message } from "./Message";
 import { useChatMessages } from "./hooks/useChatMessages";
 import { useChatPusher } from "./hooks/useChatPusher";
@@ -43,8 +42,15 @@ export function ChatRoom({
   const [text, setText] = useState("");
   const utils = api.useUtils();
 
-  const { scrollParentRef, messages, msgStatus, rowVirtualizer, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useChatMessages({ chatRoomId, session });
+  const {
+    scrollParentRef,
+    messages,
+    msgStatus,
+    rowVirtualizer,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useChatMessages({ chatRoomId, session });
 
   const { scrollToBottom } = useChatScroll(scrollParentRef, messages.length);
 
@@ -121,7 +127,11 @@ export function ChatRoom({
         clientId: newMessage.clientId,
         replyToId: replyTo?.id ?? null,
         replyTo: replyTo
-          ? { id: replyTo.id, text: replyTo.text, user: { id: replyTo.user.id, name: replyTo.user.name } }
+          ? {
+              id: replyTo.id,
+              text: replyTo.text,
+              user: { id: replyTo.user.id, name: replyTo.user.name },
+            }
           : null,
       };
 
@@ -158,6 +168,14 @@ export function ChatRoom({
       handleSendMessage(e);
     }
   };
+
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (sendMessage.isSuccess) {
+      inputRef.current?.focus();
+    }
+  }, [sendMessage.isSuccess]);
 
   if (status === "loading" || msgStatus === "pending") {
     return (
@@ -217,7 +235,7 @@ export function ChatRoom({
   return (
     <div className="flex h-full flex-col">
       {/* Header with profile info */}
-  <div className="flex items-center gap-3 border-b p-3">
+      <div className="flex items-center gap-3 border-b p-3">
         {onBack && (
           <Button
             variant="ghost"
@@ -272,7 +290,10 @@ export function ChatRoom({
                         type="button"
                         disabled={renameGroup.isPending || !newGroupName.trim()}
                         onClick={() =>
-                          renameGroup.mutate({ chatRoomId, name: newGroupName.trim() })
+                          renameGroup.mutate({
+                            chatRoomId,
+                            name: newGroupName.trim(),
+                          })
                         }
                       >
                         {renameGroup.isPending ? "Saving..." : "Save"}
@@ -285,11 +306,19 @@ export function ChatRoom({
                     <div className="text-sm font-medium">Members</div>
                     <div className="space-y-2">
                       {chatRoom?.users.map((u) => (
-                        <div key={u.id} className="flex items-center justify-between">
+                        <div
+                          key={u.id}
+                          className="flex items-center justify-between"
+                        >
                           <div className="flex items-center gap-2">
                             <Avatar className="h-6 w-6">
-                              <AvatarImage src={u.image ?? ''} alt={u.name ?? 'User'} />
-                              <AvatarFallback>{u.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                              <AvatarImage
+                                src={u.image ?? ""}
+                                alt={u.name ?? "User"}
+                              />
+                              <AvatarFallback>
+                                {u.name?.charAt(0).toUpperCase()}
+                              </AvatarFallback>
                             </Avatar>
                             <span className="text-sm">{u.name}</span>
                           </div>
@@ -298,7 +327,12 @@ export function ChatRoom({
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => removeMember.mutate({ chatRoomId, userId: u.id })}
+                              onClick={() =>
+                                removeMember.mutate({
+                                  chatRoomId,
+                                  userId: u.id,
+                                })
+                              }
                               disabled={removeMember.isPending}
                             >
                               Remove
@@ -314,13 +348,17 @@ export function ChatRoom({
                     <div className="text-sm font-medium">Invite members</div>
                     <div className="flex flex-wrap gap-2">
                       {allUsers
-                        ?.filter((u) => !chatRoom?.users.some((m) => m.id === u.id))
+                        ?.filter(
+                          (u) => !chatRoom?.users.some((m) => m.id === u.id),
+                        )
                         .map((u) => (
                           <Button
                             key={u.id}
                             variant="secondary"
                             size="sm"
-                            onClick={() => addMembers.mutate({ chatRoomId, userIds: [u.id] })}
+                            onClick={() =>
+                              addMembers.mutate({ chatRoomId, userIds: [u.id] })
+                            }
                             disabled={addMembers.isPending}
                           >
                             + {u.name}
@@ -343,11 +381,6 @@ export function ChatRoom({
               </DialogContent>
             </Dialog>
           ) : null}
-          <div className="shrink-0 text-right">
-          <p className="text-muted-foreground text-xs">
-            {messages?.length ?? 0} messages
-          </p>
-          </div>
         </div>
       </div>
 
@@ -414,12 +447,18 @@ export function ChatRoom({
 
       <div className="border-t p-4">
         {replyTo && (
-          <div className="mb-2 flex items-start justify-between rounded-md border bg-muted/50 p-2 text-xs">
+          <div className="bg-muted/50 mb-2 flex items-start justify-between rounded-md border p-2 text-xs">
             <div className="mr-2 truncate">
-              <p className="font-semibold">Replying to {replyTo?.user.name ?? "User"}</p>
+              <p className="font-semibold">
+                Replying to {replyTo?.user.name ?? "User"}
+              </p>
               <p className="line-clamp-2 opacity-80">{replyTo.text}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setReplyTo(null)}
+            >
               <XIcon className="h-4 w-4" />
             </Button>
           </div>
@@ -437,6 +476,7 @@ export function ChatRoom({
             className="flex-1"
             disabled={sendMessage.isPending}
             autoFocus
+            ref={inputRef}
           />
           <Button
             type="submit"
