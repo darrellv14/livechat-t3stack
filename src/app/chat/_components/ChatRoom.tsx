@@ -374,7 +374,7 @@ export function ChatRoom({
                       width: "100%",
                       transform: `translateY(${vi.start}px)`,
                     }}
-                    className="mb-4"
+                    className="pb-2"
                   >
                     <Message
                       message={msg}
