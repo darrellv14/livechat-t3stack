@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, MessageSquare, User } from "lucide-react";
+import { Info, LogOut, MessageSquare, User } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 
@@ -26,9 +26,16 @@ export function Navbar() {
         </Link>
 
         <div className="flex items-center gap-4">
+          <Link href="/about">
+            <Button variant="ghost">
+              <Info className="mr-2 h-4 w-4" />
+              About
+            </Button>
+          </Link>
+
           {session ? (
             <>
-              <Link href="/chat">
+              <Link href="/">
                 <Button variant="ghost">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Chats
