@@ -15,6 +15,7 @@ declare module "next-auth" {
 export const authConfig = {
   providers: [GoogleProvider],
   adapter: PrismaAdapter(db),
+  basePath: "/chat/api/auth",
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
