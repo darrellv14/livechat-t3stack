@@ -408,7 +408,7 @@ export function ChatRoom({
   return (
     <div className="flex h-full flex-col">
       {/* Header with profile info */}
-      <div className="flex items-center gap-3 border-b p-4">
+      <div className="flex items-center gap-3 border-b p-3">
         {onBack && (
           <Button
             variant="ghost"
