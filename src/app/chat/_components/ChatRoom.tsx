@@ -2,11 +2,19 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input as TextInput } from "@/components/ui/input";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { ArrowLeft, Send } from "lucide-react";
+import { ArrowLeft, Send, Settings } from "lucide-react";
 import type { Session } from "next-auth";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -54,6 +62,38 @@ export function ChatRoom({
       refetchOnWindowFocus: false,
     },
   );
+
+  // Group management state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const { data: allUsers } = api.chat.getUsers.useQuery();
+
+  const renameGroup = api.chat.renameGroup.useMutation({
+    onSuccess: async () => {
+      await utils.chat.getChatRooms.invalidate();
+      await utils.chat.getChatRoomById.invalidate({ chatRoomId });
+      setNewGroupName("");
+    },
+  });
+  const addMembers = api.chat.addMembers.useMutation({
+    onSuccess: async () => {
+      await utils.chat.getChatRooms.invalidate();
+      await utils.chat.getChatRoomById.invalidate({ chatRoomId });
+    },
+  });
+  const removeMember = api.chat.removeMember.useMutation({
+    onSuccess: async () => {
+      await utils.chat.getChatRooms.invalidate();
+      await utils.chat.getChatRoomById.invalidate({ chatRoomId });
+    },
+  });
+  const leaveGroup = api.chat.leaveGroup.useMutation({
+    onSuccess: async () => {
+      await utils.chat.getChatRooms.invalidate();
+      // Optionally navigate back if user left this room
+      if (onBack) onBack();
+    },
+  });
 
   const sendMessage = api.chat.sendMessage.useMutation({
     onMutate: async (newMessage) => {
@@ -163,25 +203,12 @@ export function ChatRoom({
 
   const chatInfo = getChatInfo();
 
-  const getLastSeenText = (): string => {
-    if (!chatInfo.lastSeen) return "Offline";
-    const lastSeen = new Date(chatInfo.lastSeen);
-    const now = new Date();
-    const diffMs = now.getTime() - lastSeen.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-
-    if (diffMins < 1) return "Online";
-    if (diffMins < 60) return `Active ${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `Active ${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `Active ${diffDays}d ago`;
-  };
+  // Removed Online indicator; using explicit Last Seen text in header
 
   return (
     <div className="flex h-full flex-col">
       {/* Header with profile info */}
-      <div className="flex items-center gap-3 border-b p-3">
+  <div className="flex items-center gap-3 border-b p-3">
         {onBack && (
           <Button
             variant="ghost"
@@ -202,23 +229,116 @@ export function ChatRoom({
 
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{chatInfo.name}</h2>
-          <div className="flex items-center gap-1.5">
-            <div
-              className={cn(
-                "h-2 w-2 rounded-full",
-                getLastSeenText() === "Online"
-                  ? "animate-pulse bg-green-500"
-                  : "bg-gray-400",
-              )}
-            />
-            <p className="text-muted-foreground text-xs">{getLastSeenText()}</p>
-          </div>
+          <p className="text-muted-foreground text-xs">
+            {chatInfo.lastSeen
+              ? `Last seen ${new Date(chatInfo.lastSeen).toLocaleString()}`
+              : "Last seen: unknown"}
+          </p>
         </div>
 
-        <div className="shrink-0 text-right">
+        <div className="ml-auto flex items-center gap-2">
+          {chatRoom?.isGroup ? (
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Group settings">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Group settings</DialogTitle>
+                  <DialogDescription>Manage name and members</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6">
+                  {/* Rename */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Rename group</label>
+                    <div className="flex gap-2">
+                      <TextInput
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder={chatRoom?.name ?? "Group name"}
+                      />
+                      <Button
+                        type="button"
+                        disabled={renameGroup.isPending || !newGroupName.trim()}
+                        onClick={() =>
+                          renameGroup.mutate({ chatRoomId, name: newGroupName.trim() })
+                        }
+                      >
+                        {renameGroup.isPending ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Members */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Members</div>
+                    <div className="space-y-2">
+                      {chatRoom?.users.map((u) => (
+                        <div key={u.id} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={u.image ?? ''} alt={u.name ?? 'User'} />
+                              <AvatarFallback>{u.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm">{u.name}</span>
+                          </div>
+                          {/* Allow removing other members; self uses Leave button below */}
+                          {u.id !== session?.user?.id && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeMember.mutate({ chatRoomId, userId: u.id })}
+                              disabled={removeMember.isPending}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Invite */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Invite members</div>
+                    <div className="flex flex-wrap gap-2">
+                      {allUsers
+                        ?.filter((u) => !chatRoom?.users.some((m) => m.id === u.id))
+                        .map((u) => (
+                          <Button
+                            key={u.id}
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => addMembers.mutate({ chatRoomId, userIds: [u.id] })}
+                            disabled={addMembers.isPending}
+                          >
+                            + {u.name}
+                          </Button>
+                        ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <div />
+                    <Button
+                      variant="destructive"
+                      onClick={() => leaveGroup.mutate({ chatRoomId })}
+                      disabled={leaveGroup.isPending}
+                    >
+                      {leaveGroup.isPending ? "Leaving..." : "Leave group"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+          <div className="shrink-0 text-right">
           <p className="text-muted-foreground text-xs">
             {messages?.length ?? 0} messages
           </p>
+          </div>
         </div>
       </div>
 

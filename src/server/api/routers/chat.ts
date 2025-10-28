@@ -77,11 +77,91 @@ export const chatRouter = createTRPCRouter({
           },
         },
       });
-
+      // Notify both participants they have a new DM room
+      await Promise.all(
+        newChat.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-added", {
+            id: newChat.id,
+            updatedAt: newChat.updatedAt,
+            isGroup: newChat.isGroup,
+            name: null as string | null,
+            users: newChat.users,
+            messages: [],
+          }),
+        ),
+      );
       return newChat;
     }),
 
-    // Get all chat rooms for current user
+  // Create a new group chat with provided members (including the current user)
+  createGroup: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        userIds: z.array(z.string()).min(1), // at least one other member
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Ensure the current user is part of the group
+      const connectUsers = Array.from(
+        new Set([ctx.session.user.id, ...input.userIds]),
+      ).map((id) => ({ id }));
+
+      const group = await ctx.db.chatRoom.create({
+        data: {
+          isGroup: true,
+          name: input.name,
+          users: {
+            connect: connectUsers,
+          },
+        },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              lastSeen: true,
+            },
+          },
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              text: true,
+              createdAt: true,
+              isDeleted: true,
+              user: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      // Notify all members via their user channel about the new room
+      await Promise.all(
+        group.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-added", {
+            id: group.id,
+            updatedAt: group.updatedAt,
+            isGroup: group.isGroup,
+            name: group.name,
+            users: group.users.map((uu) => ({
+              id: uu.id,
+              name: uu.name,
+              email: uu.email,
+              image: uu.image,
+              lastSeen: uu.lastSeen,
+            })),
+            messages: group.messages,
+          }),
+        ),
+      );
+      return group;
+    }),
+
+  // Get all chat rooms for current user
   getChatRooms: protectedProcedure.query(async ({ ctx }) => {
     const chatRooms = await ctx.db.chatRoom.findMany({
       where: {
@@ -160,13 +240,19 @@ export const chatRouter = createTRPCRouter({
       } | null;
 
       if (!chatRoom) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Chat room not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Chat room not found",
+        });
       }
 
       // Check if user is in this chat room
       const isMember = chatRoom.users.some((u) => u.id === ctx.session.user.id);
       if (!isMember) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this chat" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this chat",
+        });
       }
 
       return chatRoom;
@@ -183,10 +269,11 @@ export const chatRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Trigger Pusher event first for low-latency feel, don't await it
       void pusher.trigger(input.chatRoomId, "new-message", {
-        // Construct a payload that matches the client-side expected type
-        id: `server-temp-${Date.now()}`, // A temporary ID until DB confirms
+        // Temporary event so receivers see something instantly
+        id: `server-temp-${Date.now()}`,
         text: input.text,
         createdAt: new Date(),
+        updatedAt: new Date(),
         isEdited: false,
         isDeleted: false,
         chatRoomId: input.chatRoomId,
@@ -196,7 +283,7 @@ export const chatRouter = createTRPCRouter({
           name: ctx.session.user.name,
           image: ctx.session.user.image,
         },
-        clientId: input.clientId, // Echo back clientId for de-dup
+        clientId: input.clientId,
       });
 
       // Atomically create message and update room timestamp in the background
@@ -223,7 +310,286 @@ export const chatRouter = createTRPCRouter({
         }),
       ]);
 
+      // Emit final event with persisted message id to replace temp/client copy
+      await pusher.trigger(input.chatRoomId, "new-message", {
+        id: message.id,
+        text: message.text,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        isEdited: message.isEdited,
+        isDeleted: message.isDeleted,
+        chatRoomId: message.chatRoomId,
+        userId: message.userId,
+        user: {
+          id: message.user.id,
+          name: message.user.name,
+          image: message.user.image,
+        },
+        clientId: input.clientId,
+      });
+
+      // Also notify all participants via their user channel so that devices not subscribed to the room yet can update their chat list instantly
+      const roomWithUsers = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              lastSeen: true,
+            },
+          },
+        },
+      });
+      if (roomWithUsers) {
+        await Promise.all(
+          roomWithUsers.users.map((u) =>
+            pusher.trigger(`user-${u.id}`, "room-updated", {
+              id: roomWithUsers.id,
+              updatedAt: message.createdAt,
+              isGroup: roomWithUsers.isGroup,
+              name: roomWithUsers.name,
+              users: roomWithUsers.users,
+              messages: [
+                {
+                  id: message.id,
+                  text: message.text,
+                  createdAt: message.createdAt,
+                  isDeleted: message.isDeleted,
+                  user: { id: message.user.id, name: message.user.name },
+                },
+              ],
+            }),
+          ),
+        );
+      }
+
       return message;
+    }),
+
+  // Add members to a group chat
+  addMembers: protectedProcedure
+    .input(
+      z.object({ chatRoomId: z.string(), userIds: z.array(z.string()).min(1) }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Ensure room exists and is a group and caller is a member
+      const room = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: { users: { select: { id: true } } },
+      });
+      if (!room)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Chat room not found",
+        });
+      if (!room.isGroup)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Not a group chat",
+        });
+      if (!room.users.some((u) => u.id === ctx.session.user.id))
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not a member of this group",
+        });
+
+      const updated = await ctx.db.chatRoom.update({
+        where: { id: input.chatRoomId },
+        data: {
+          users: {
+            connect: Array.from(new Set(input.userIds)).map((id) => ({ id })),
+          },
+        },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              lastSeen: true,
+            },
+          },
+        },
+      });
+
+      // Notify new members they were added
+      await Promise.all(
+        input.userIds.map((userId) =>
+          pusher.trigger(`user-${userId}`, "room-added", {
+            id: updated.id,
+            updatedAt: updated.updatedAt,
+            isGroup: updated.isGroup,
+            name: updated.name,
+            users: updated.users,
+            messages: [],
+          }),
+        ),
+      );
+
+      // Notify existing members of membership update
+      await Promise.all(
+        updated.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-members-updated", {
+            id: updated.id,
+            users: updated.users,
+          }),
+        ),
+      );
+
+      return updated;
+    }),
+
+  // Remove a member from a group chat
+  removeMember: protectedProcedure
+    .input(z.object({ chatRoomId: z.string(), userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const room = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: { users: { select: { id: true } } },
+      });
+      if (!room)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Chat room not found",
+        });
+      if (!room.isGroup)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Not a group chat",
+        });
+      if (!room.users.some((u) => u.id === ctx.session.user.id))
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not a member of this group",
+        });
+
+      const updated = await ctx.db.chatRoom.update({
+        where: { id: input.chatRoomId },
+        data: {
+          users: { disconnect: { id: input.userId } },
+        },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              lastSeen: true,
+            },
+          },
+        },
+      });
+
+      // Notify removed user and existing members
+      await pusher.trigger(`user-${input.userId}`, "room-removed", {
+        id: updated.id,
+      });
+      await Promise.all(
+        updated.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-members-updated", {
+            id: updated.id,
+            users: updated.users,
+          }),
+        ),
+      );
+      return { success: true };
+    }),
+
+  // Rename a group chat
+  renameGroup: protectedProcedure
+    .input(z.object({ chatRoomId: z.string(), name: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const room = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: { users: { select: { id: true } } },
+      });
+      if (!room)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Chat room not found",
+        });
+      if (!room.isGroup)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Not a group chat",
+        });
+      if (!room.users.some((u) => u.id === ctx.session.user.id))
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not a member of this group",
+        });
+
+      const updated = await ctx.db.chatRoom.update({
+        where: { id: input.chatRoomId },
+        data: { name: input.name },
+        include: { users: { select: { id: true } } },
+      });
+      await Promise.all(
+        updated.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-renamed", {
+            id: updated.id,
+            name: input.name,
+          }),
+        ),
+      );
+      return updated;
+    }),
+
+  // Leave a group chat (current user)
+  leaveGroup: protectedProcedure
+    .input(z.object({ chatRoomId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const room = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: { users: { select: { id: true } } },
+      });
+      if (!room)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Chat room not found",
+        });
+      if (!room.isGroup)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Not a group chat",
+        });
+      if (!room.users.some((u) => u.id === ctx.session.user.id))
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not a member of this group",
+        });
+
+      // Disconnect current user
+      const after = await ctx.db.chatRoom.update({
+        where: { id: input.chatRoomId },
+        data: { users: { disconnect: { id: ctx.session.user.id } } },
+        include: { users: { select: { id: true } } },
+      });
+
+      // Notify current user and remaining members
+      await pusher.trigger(`user-${ctx.session.user.id}`, "room-removed", {
+        id: after.id,
+      });
+      await Promise.all(
+        after.users.map((u) =>
+          pusher.trigger(`user-${u.id}`, "room-members-updated", {
+            id: after.id,
+            users: after.users,
+          }),
+        ),
+      );
+
+      // Optionally delete room if empty
+      if (after.users.length === 0) {
+        await ctx.db.chatRoom.delete({ where: { id: input.chatRoomId } });
+      }
+
+      return { success: true };
     }),
 
   editMessage: protectedProcedure
@@ -235,11 +601,17 @@ export const chatRouter = createTRPCRouter({
       });
 
       if (!message) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Message not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Message not found",
+        });
       }
 
       if (message.userId !== ctx.session.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You can only edit your own messages" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only edit your own messages",
+        });
       }
 
       // Check if message is older than 1 minute
@@ -271,7 +643,11 @@ export const chatRouter = createTRPCRouter({
       });
 
       // Trigger Pusher event
-      await pusher.trigger(updatedMessage.chatRoomId, "edit-message", updatedMessage);
+      await pusher.trigger(
+        updatedMessage.chatRoomId,
+        "edit-message",
+        updatedMessage,
+      );
 
       return updatedMessage;
     }),
@@ -285,11 +661,17 @@ export const chatRouter = createTRPCRouter({
       });
 
       if (!message) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Message not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Message not found",
+        });
       }
 
       if (message.userId !== ctx.session.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own messages" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only delete your own messages",
+        });
       }
 
       // Check if message is older than 1 minute
@@ -302,7 +684,9 @@ export const chatRouter = createTRPCRouter({
       }
 
       // Trigger Pusher event before deleting
-      await pusher.trigger(message.chatRoomId, "delete-message", { messageId: input.messageId });
+      await pusher.trigger(message.chatRoomId, "delete-message", {
+        messageId: input.messageId,
+      });
 
       await ctx.db.message.delete({
         where: { id: input.messageId },
@@ -312,7 +696,12 @@ export const chatRouter = createTRPCRouter({
     }),
 
   getMessages: protectedProcedure
-    .input(z.object({ chatRoomId: z.string(), limit: z.number().optional().default(100) }))
+    .input(
+      z.object({
+        chatRoomId: z.string(),
+        limit: z.number().optional().default(100),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const messages = await ctx.db.message.findMany({
         where: {
