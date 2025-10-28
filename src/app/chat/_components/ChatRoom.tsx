@@ -359,14 +359,14 @@ export function ChatRoom({
             <div
               style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
             >
-              
               {rowVirtualizer.getVirtualItems().map((vi) => {
                 const msg = messages[vi.index] as MessageType;
                 return (
                   <div
                     key={msg.id}
-                    ref={rowVirtualizer.measureElement}
-                    data-index={vi.index}
+                    ref={(el) => {
+                      if (el) rowVirtualizer.measureElement(el);
+                    }}
                     style={{
                       position: "absolute",
                       top: 0,

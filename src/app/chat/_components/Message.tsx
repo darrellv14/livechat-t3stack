@@ -73,7 +73,8 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
 
   const canEditOrDelete = () => {
     const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
-    return message.createdAt > oneMinuteAgo;
+    const created = new Date(message.createdAt as unknown as string | number | Date);
+    return created > oneMinuteAgo;
   };
 
   // Try to decrypt if encrypted
