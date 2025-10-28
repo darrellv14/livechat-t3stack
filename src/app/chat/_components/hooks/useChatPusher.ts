@@ -4,7 +4,7 @@ import { env } from "@/env";
 import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ChatRoomProps } from "../ChatRoom";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
@@ -44,8 +44,10 @@ const addMessageToCache = (
         return true;
       });
 
-      // Add the new message to the start of the first page (newest messages)
-      const newItems = [payload, ...filteredItems];
+      // Append the new message to the end of the first page (items are ASC by time)
+      // Ensure no duplicate by id
+      const withoutDupById = filteredItems.filter((m) => m.id !== payload.id);
+      const newItems = [...withoutDupById, payload];
 
       pagesCopy[0] = { ...firstPage, items: newItems };
       return { ...data, pages: pagesCopy };
@@ -59,6 +61,7 @@ export function useChatPusher({
   onNewMessage,
 }: ChatRoomProps & { onNewMessage: () => void }) {
   const utils = api.useUtils();
+  const lastEventRef = useRef<number>(Date.now());
 
   useEffect(() => {
     if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY || !session) {
@@ -69,6 +72,7 @@ export function useChatPusher({
     const channel = subscribe(chatRoomId);
 
     const handleNewMessage = (payload: MessageType & { clientId?: string }) => {
+      lastEventRef.current = Date.now();
       // Don't add our own messages again, they are handled optimistically
       if (payload.userId === session.user.id) {
         // We might still need to replace the temp message with the real one
@@ -84,6 +88,7 @@ export function useChatPusher({
     };
 
     const handleEditMessage = (payload: MessageType) => {
+      lastEventRef.current = Date.now();
       utils.chat.getMessagesInfinite.setInfiniteData(
         { chatRoomId, limit: 50 },
         (data) => {
@@ -100,6 +105,7 @@ export function useChatPusher({
     };
 
     const handleDeleteMessage = (payload: { messageId: string }) => {
+      lastEventRef.current = Date.now();
       utils.chat.getMessagesInfinite.setInfiniteData(
         { chatRoomId, limit: 50 },
         (data) => {
@@ -128,6 +134,35 @@ export function useChatPusher({
       }
     };
   }, [chatRoomId, utils, session, onNewMessage]);
+
+  // Light fallback: if no events for a while (e.g., socket hiccup), invalidate to refetch
+  useEffect(() => {
+    if (!chatRoomId) return;
+    const POLL_MS = 10000; // 10 seconds is a safe, light interval
+
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      const idleFor = Date.now() - lastEventRef.current;
+      if (idleFor >= POLL_MS) {
+        void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 });
+      }
+    };
+
+    const interval = window.setInterval(tick, POLL_MS);
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        lastEventRef.current = Date.now();
+        void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [chatRoomId, utils]);
 
   return { addMessageToCache };
 }
