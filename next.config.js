@@ -6,7 +6,7 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
-  basePath: '/chat', // Tambahkan baris ini
+  // basePath tidak perlu karena rewrite dari portfolio sudah handle routing
 };
 
 export default config;
