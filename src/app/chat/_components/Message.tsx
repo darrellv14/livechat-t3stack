@@ -108,7 +108,7 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
   return (
     <div
       className={cn(
-        "flex items-end gap-2",
+        "flex items-end gap-2 px-2",
         isCurrentUser ? "flex-row-reverse" : "flex-row",
       )}
     >
@@ -126,8 +126,10 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
 
       <div
         className={cn(
-          "group relative max-w-[70%] rounded-lg px-4 py-2",
-          isCurrentUser ? "bg-primary text-primary-foreground" : "bg-muted",
+          "group relative max-w-[75%] rounded-2xl px-4 py-2",
+          isCurrentUser
+            ? "bg-primary text-primary-foreground ml-auto"
+            : "bg-muted mr-auto",
         )}
       >
         {!isCurrentUser && (

@@ -25,7 +25,7 @@ export default async function Home() {
 
           <h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-6xl">
             Real-time Chat Made{" "}
-            <span className="from-primary to-primary/60 bg-gradient-to-r bg-clip-text text-transparent">
+            <span className="from-primary to-primary/60 bg-linear-to-r bg-clip-text text-transparent">
               Simple
             </span>
           </h1>

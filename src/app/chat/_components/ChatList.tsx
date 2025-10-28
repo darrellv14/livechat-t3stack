@@ -109,6 +109,8 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
           );
           return updated;
         });
+        // Also proactively invalidate to refetch in background ensuring counts/ordering are fresh
+        void utils.chat.getChatRooms.invalidate();
       });
 
       ch.bind("delete-message", (payload: { messageId: string }) => {
@@ -218,7 +220,10 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                     <p className="font-medium">{getChatName(chat)}</p>
                     {chat.isGroup && <Badge variant="secondary">Group</Badge>}
                   </div>
-                  <p className="text-muted-foreground text-sm wrap-break-word line-clamp-3">
+                  <p
+                    className="text-muted-foreground text-sm wrap-break-word overflow-hidden"
+                    style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
+                  >
                     {getLastMessage(chat)}
                   </p>
                 </div>

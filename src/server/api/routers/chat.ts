@@ -279,6 +279,26 @@ export const chatRouter = createTRPCRouter({
       return messages;
     }),
 
+  // Fetch a single chat room's metadata for header rendering
+  getChatRoom: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const room = await ctx.db.chatRoom.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          name: true,
+          isGroup: true,
+          users: {
+            select: { id: true, name: true, image: true, lastSeen: true },
+          },
+        },
+      });
+      if (!room) throw new TRPCError({ code: "NOT_FOUND", message: "Room not found" });
+      const messagesCount = await ctx.db.message.count({ where: { chatRoomId: input.id, isDeleted: false } });
+      return { ...room, messagesCount };
+    }),
+
   // Infinite pagination optimized for chat: returns items ascending by time with a cursor for older messages
   getMessagesInfinite: protectedProcedure
     .input(
@@ -368,4 +388,27 @@ export const chatRouter = createTRPCRouter({
 
     return chatRoom;
   }),
+
+  // Heartbeat to update user's lastSeen
+  heartbeat: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { lastSeen: new Date() },
+      });
+      return { ok: true };
+    }),
+
+  // Typing indicator: broadcast to room
+  setTyping: protectedProcedure
+    .input(z.object({ chatRoomId: z.string(), isTyping: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      const payload = {
+        user: { id: ctx.session.user.id, name: ctx.session.user.name },
+        chatRoomId: input.chatRoomId,
+        at: new Date().toISOString(),
+      };
+      await pusher.trigger(input.chatRoomId, input.isTyping ? "typing" : "stop-typing", payload);
+      return { ok: true };
+    }),
 });

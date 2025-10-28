@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { ArrowLeft, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
@@ -12,6 +12,7 @@ import { deriveKeyFromPassphrase, encryptText, decryptText as decryptTextFn, ran
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
+import { ChatHeader } from "./ChatHeader";
 import { env } from "@/env";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
@@ -76,8 +77,8 @@ export function ChatRoom({
             return { pages: [{ items: [tempMsg], nextCursor: undefined }], pageParams: [undefined] } as unknown as typeof data;
           }
           const pagesCopy = [...data.pages];
-          const last = pagesCopy[pagesCopy.length - 1]!;
-          pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
+          const first = pagesCopy[0]!;
+          pagesCopy[0] = { ...first, items: [...first.items, tempMsg] };
           return { ...data, pages: pagesCopy };
         });
         return { previous, tempId };
@@ -97,11 +98,25 @@ export function ChatRoom({
   });
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollParentRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   };
 
+  const nearBottomRef = useRef(true);
   useEffect(() => {
-    scrollToBottom();
+    const el = scrollParentRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 120; // px
+      nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    // Only snap to bottom on initial mount or when user is near bottom
+    if (nearBottomRef.current) scrollToBottom();
   }, [messages.length]);
 
   // Setup Pusher (singleton client)
@@ -125,10 +140,10 @@ export function ChatRoom({
             pageParams: [undefined],
           } as unknown as typeof data;
         }
-        // Append to the last page
+        // Append to the newest page (first page), items are ascending in that page
         const pagesCopy = [...data.pages];
-        const lastPage = pagesCopy[pagesCopy.length - 1]!;
-        const items = lastPage.items ?? [];
+        const newestPage = pagesCopy[0]!;
+        const items = newestPage.items ?? [];
         const exists = items.some((m) => m.id === payload.id);
         const nextItems = exists ? items.map((m) => (m.id === payload.id ? payload : m)) : [...items, payload];
         // Remove optimistic temp
@@ -139,7 +154,7 @@ export function ChatRoom({
           }
           return true;
         });
-        pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: deduped };
+        pagesCopy[0] = { ...newestPage, items: deduped };
         return { ...data, pages: pagesCopy };
       });
       // Update chat list cache in-place (no network)
@@ -170,8 +185,10 @@ export function ChatRoom({
         );
         return updated;
       });
-      // Scroll down when new message arrives
-      scrollToBottom();
+      // Scroll down when new message arrives only if user is near bottom or this client is the sender
+      if (nearBottomRef.current || payload.user.id === session?.user?.id) {
+        scrollToBottom();
+      }
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
@@ -323,32 +340,12 @@ export function ChatRoom({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header with optional back button for mobile */}
-      <div className="flex items-center gap-3 border-b p-4">
-        {onBack && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onBack}
-            className="shrink-0 md:hidden"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        )}
-        <div className="flex-1">
-          <h2 className="text-lg font-semibold">Chat</h2>
-          <p className="text-muted-foreground text-sm">
-            {messages?.length ?? 0} messages
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-          <span className="text-muted-foreground text-xs">Live</span>
-          <Button size="sm" variant="ghost" onClick={locked ? handleSetKey : handleLock}>
-            {locked ? "Unlock" : "Lock"}
-          </Button>
-        </div>
-      </div>
+      <ChatHeader
+        chatRoomId={chatRoomId}
+        onBack={onBack}
+        locked={locked}
+        onToggleLock={locked ? handleSetKey : handleLock}
+      />
 
       <div className="flex-1 overflow-y-auto p-4" ref={scrollParentRef}>
         {!messages || messages.length === 0 ? (
