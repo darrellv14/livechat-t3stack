@@ -103,10 +103,10 @@ export function ChatRoom({
               } as unknown as typeof data;
             }
             const pagesCopy = [...data.pages];
-            const last = pagesCopy[pagesCopy.length - 1]!;
-            pagesCopy[pagesCopy.length - 1] = {
-              ...last,
-              items: [...last.items, tempMsg],
+            const first = pagesCopy[0]!;
+            pagesCopy[0] = {
+              ...first,
+              items: [...first.items, tempMsg],
             };
             return { ...data, pages: pagesCopy };
           },
