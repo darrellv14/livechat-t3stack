@@ -47,7 +47,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     createDM.mutate({ userId });
   };
 
-  const getChatName = (chat: NonNullable<typeof chatRooms>[number]) => {
+  const getChatName = (chat: NonNullable<typeof chatRooms>[number]): string => {
     if (chat.isGroup) {
       return chat.name ?? "Group Chat";
     }
@@ -56,7 +56,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.name ?? "Unknown User";
   };
 
-  const getChatAvatar = (chat: NonNullable<typeof chatRooms>[number]) => {
+  const getChatAvatar = (chat: NonNullable<typeof chatRooms>[number]): string | null => {
     if (chat.isGroup) {
       return null;
     }
@@ -64,11 +64,12 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.image ?? null;
   };
 
-  const getLastMessage = (chat: NonNullable<typeof chatRooms>[number]) => {
+  const getLastMessage = (chat: NonNullable<typeof chatRooms>[number]): string => {
     const lastMsg = chat.messages[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    return `${lastMsg.user.name}: ${lastMsg.text}`;
+    const userName = lastMsg.user.name ?? "User";
+    return `${userName}: ${lastMsg.text}`;
   };
 
   // Subscribe to Pusher for each chat room to keep list in sync without polling

@@ -153,7 +153,7 @@ export const chatRouter = createTRPCRouter({
       }
 
       // Check if user is in this chat room
-      const isMember = chatRoom.users.some((u) => u.id === ctx.session.user.id);
+      const isMember = chatRoom.users.some((u: { id: string }) => u.id === ctx.session.user.id);
       if (!isMember) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this chat" });
       }

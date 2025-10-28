@@ -343,7 +343,7 @@ export function ChatRoom({
   }
 
   // Get chat name and avatar for header
-  const getChatInfo = () => {
+  const getChatInfo = (): { name: string; avatar: string | null; lastSeen: Date | null } => {
     if (!chatRoom) return { name: "Chat", avatar: null, lastSeen: null };
     
     if (chatRoom.isGroup) {
@@ -360,14 +360,14 @@ export function ChatRoom({
     
     return {
       name: otherUser.name ?? "User",
-      avatar: otherUser.image,
-      lastSeen: otherUser.lastSeen,
+      avatar: otherUser.image ?? null,
+      lastSeen: otherUser.lastSeen ?? null,
     };
   };
 
   const chatInfo = getChatInfo();
   
-  const getLastSeenText = () => {
+  const getLastSeenText = (): string => {
     if (!chatInfo.lastSeen) return "Offline";
     const lastSeen = new Date(chatInfo.lastSeen);
     const now = new Date();
