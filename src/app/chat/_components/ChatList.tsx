@@ -49,12 +49,28 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
 
   type ChatRoomItem = RouterOutputs["chat"]["getChatRooms"][number];
 
+  type ChatUser = { id: string; name: string | null; image: string | null };
+  type ChatLastMsg = {
+    id: string;
+    text: string;
+    createdAt: Date | string;
+    isDeleted: boolean;
+    user: { id: string; name: string | null };
+  };
+
   const getChatName = (chat: ChatRoomItem): string => {
     if (chat.isGroup) {
       return chat.name ?? "Group Chat";
     }
     // For DM, show the other user's name
-    const otherUser = chat.users.find((u) => u.id !== session?.user?.id);
+    const usersArr = (chat.users ?? []) as ChatUser[];
+    let otherUser: ChatUser | undefined = undefined;
+    for (const u of usersArr) {
+      if (u?.id && u.id !== session?.user?.id) {
+        otherUser = u;
+        break;
+      }
+    }
     return otherUser?.name ?? "Unknown User";
   };
 
@@ -62,15 +78,23 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     if (chat.isGroup) {
       return null;
     }
-    const otherUser = chat.users.find((u) => u.id !== session?.user?.id);
+    const usersArr = (chat.users ?? []) as ChatUser[];
+    let otherUser: ChatUser | undefined = undefined;
+    for (const u of usersArr) {
+      if (u?.id && u.id !== session?.user?.id) {
+        otherUser = u;
+        break;
+      }
+    }
     return otherUser?.image ?? null;
   };
 
   const getLastMessage = (chat: ChatRoomItem): string => {
-    const lastMsg = chat.messages[0];
+    const msgs = (Array.isArray(chat.messages) ? chat.messages : []) as ChatLastMsg[];
+    const lastMsg = msgs[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    const userName = lastMsg.user.name ?? "User";
+    const userName = lastMsg.user?.name ?? "User";
     return `${userName}: ${lastMsg.text}`;
   };
 
@@ -126,7 +150,8 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
           if (!rooms) return rooms;
           return rooms.map((r): ChatRoomItem => {
             if (r.id !== room.id) return r;
-            const last = r.messages[0];
+            const msgs = (Array.isArray(r.messages) ? r.messages : []) as ChatLastMsg[];
+            const last = msgs[0];
             if (!last || last.id !== payload.messageId) return r;
             return { ...r, messages: [] } satisfies ChatRoomItem;
           });

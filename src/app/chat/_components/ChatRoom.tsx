@@ -255,7 +255,8 @@ export function ChatRoom({
         if (!rooms) return rooms;
         return rooms.map((room) => {
           if (room.id !== chatRoomId) return room;
-          const last = room.messages[0];
+          const msgs = Array.isArray(room.messages) ? room.messages : [];
+          const last = msgs[0];
           if (!last || last.id !== payload.messageId) return room;
           return {
             ...room,
