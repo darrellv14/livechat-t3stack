@@ -58,7 +58,8 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     user: { id: string; name: string | null };
   };
 
-  type ChatRoomView = ChatRoomItem & Partial<{ users: ChatUser[]; messages: ChatLastMsg[] }>;
+  type ChatRoomView = ChatRoomItem &
+    Partial<{ users: ChatUser[]; messages: ChatLastMsg[] }>;
 
   const getChatName = (chat: ChatRoomView): string => {
     if (chat.isGroup) {
@@ -92,12 +93,13 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
   };
 
   const getLastMessage = (chat: ChatRoomView): string => {
-    const msgs: ChatLastMsg[] = Array.isArray(chat.messages) ? chat.messages : [];
+    const msgs: ChatLastMsg[] = Array.isArray(chat.messages)
+      ? chat.messages
+      : [];
     const lastMsg = msgs[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    const userName = lastMsg.user?.name ?? "User";
-    return `${userName}: ${lastMsg.text}`;
+    return `{lastMsg.text}`;
   };
 
   // Subscribe to Pusher for each chat room to keep list in sync without polling
@@ -107,60 +109,70 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
 
     const subscriptions = chatRooms.map((room) => {
       const ch = subscribe(room.id);
-      ch.bind("new-message", (payload: {
-        id: string;
-        text: string;
-        createdAt: string | Date;
-        chatRoomId: string;
-        user: { id: string; name: string | null };
-      }) => {
-        utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
-          if (!rooms) return rooms;
-          
-          let roomUpdated = false;
-          const updated = rooms.map((r): ChatRoomItem => {
-            if (r.id !== payload.chatRoomId) return r;
-            roomUpdated = true;
-            return {
-              ...r,
-              updatedAt: payload.createdAt as Date,
-              messages: [
-                {
-                  id: payload.id,
-                  text: payload.text,
-                  createdAt: payload.createdAt as Date,
-                  isDeleted: false,
-                  user: { id: payload.user.id, name: payload.user.name },
-                },
-              ],
-            } as ChatRoomItem;
-          });
-          
-          // If room not found in cache, don't update - let refetch handle it
-          if (!roomUpdated) return rooms;
-          
-          updated.sort(
-            (a, b) =>
-              new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      ch.bind(
+        "new-message",
+        (payload: {
+          id: string;
+          text: string;
+          createdAt: string | Date;
+          chatRoomId: string;
+          user: { id: string; name: string | null };
+        }) => {
+          utils.chat.getChatRooms.setData(
+            undefined,
+            (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
+              if (!rooms) return rooms;
+
+              let roomUpdated = false;
+              const updated = rooms.map((r): ChatRoomItem => {
+                if (r.id !== payload.chatRoomId) return r;
+                roomUpdated = true;
+                return {
+                  ...r,
+                  updatedAt: payload.createdAt as Date,
+                  messages: [
+                    {
+                      id: payload.id,
+                      text: payload.text,
+                      createdAt: payload.createdAt as Date,
+                      isDeleted: false,
+                      user: { id: payload.user.id, name: payload.user.name },
+                    },
+                  ],
+                } as ChatRoomItem;
+              });
+
+              // If room not found in cache, don't update - let refetch handle it
+              if (!roomUpdated) return rooms;
+
+              updated.sort(
+                (a, b) =>
+                  new Date(b.updatedAt).getTime() -
+                  new Date(a.updatedAt).getTime(),
+              );
+              return updated;
+            },
           );
-          return updated;
-        });
-      });
+        },
+      );
 
       ch.bind("delete-message", (payload: { messageId: string }) => {
-        utils.chat.getChatRooms.setData(undefined, (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
-          if (!rooms) return rooms;
-          return rooms.map((r): ChatRoomItem => {
-            if (r.id !== room.id) return r;
-            const rWithMsgs = r as Partial<{ messages?: ChatLastMsg[] }>;
-            const msgs: ChatLastMsg[] = Array.isArray(rWithMsgs.messages)
-              ? rWithMsgs.messages
-              : [];
-            const last: ChatLastMsg | undefined = msgs[0];
-            if (!last || last.id !== payload.messageId) return r;
-            return { ...r, messages: [] } as ChatRoomItem;
-          });
-        });
+        utils.chat.getChatRooms.setData(
+          undefined,
+          (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
+            if (!rooms) return rooms;
+            return rooms.map((r): ChatRoomItem => {
+              if (r.id !== room.id) return r;
+              const rWithMsgs = r as Partial<{ messages?: ChatLastMsg[] }>;
+              const msgs: ChatLastMsg[] = Array.isArray(rWithMsgs.messages)
+                ? rWithMsgs.messages
+                : [];
+              const last: ChatLastMsg | undefined = msgs[0];
+              if (!last || last.id !== payload.messageId) return r;
+              return { ...r, messages: [] } as ChatRoomItem;
+            });
+          },
+        );
       });
 
       return ch;
@@ -264,7 +276,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                     <p className="font-medium">{getChatName(chat)}</p>
                     {chat.isGroup && <Badge variant="secondary">Group</Badge>}
                   </div>
-                  <p className="text-muted-foreground text-sm wrap-break-word line-clamp-3">
+                  <p className="text-muted-foreground line-clamp-3 text-sm wrap-break-word">
                     {getLastMessage(chat)}
                   </p>
                 </div>

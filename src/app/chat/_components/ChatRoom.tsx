@@ -68,8 +68,9 @@ export function ChatRoom({
   const messages = pages?.pages.flatMap((p) => p.items) ?? [];
 
   const sendMessage = api.chat.sendMessage.useMutation({
-    onMutate: async (newMessage) => {
-      await utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
+    onMutate: (newMessage) => {
+      // Keep UI instantaneous: don't await cancel
+      void utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
       const previous = utils.chat.getMessagesInfinite.getInfiniteData({ chatRoomId, limit: 50 });
 
       if (session?.user) {
