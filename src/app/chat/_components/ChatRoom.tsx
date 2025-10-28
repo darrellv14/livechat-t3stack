@@ -17,7 +17,7 @@ import { ArrowLeft, Send, Settings, X as XIcon } from "lucide-react";
 import type { Session } from "next-auth";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Message } from "./Message";
 import { useChatMessages } from "./hooks/useChatMessages";
 import { useChatPusher } from "./hooks/useChatPusher";
@@ -60,10 +60,8 @@ export function ChatRoom({
     onNewMessage: () => scrollToBottom("smooth"),
   });
 
-  // Reply state
   const [replyTo, setReplyTo] = useState<MessageType | null>(null);
 
-  // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
     { chatRoomId },
     {
@@ -72,7 +70,23 @@ export function ChatRoom({
     },
   );
 
-  // Group management state
+  const otherUser =
+    chatRoom && !chatRoom.isGroup
+      ? (chatRoom.users.find((u) => u.id !== session?.user.id) ?? null)
+      : null;
+
+  const lastSeenFromMessages = useMemo(() => {
+    if (!otherUser?.id) return null;
+    let latest: Date | null = null;
+    for (const m of messages) {
+      if (m.userId === otherUser.id) {
+        const t = new Date(m.createdAt);
+        if (!latest || t > latest) latest = t;
+      }
+    }
+    return latest;
+  }, [messages, otherUser?.id]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const { data: allUsers } = api.chat.getUsers.useQuery();
@@ -99,7 +113,6 @@ export function ChatRoom({
   const leaveGroup = api.chat.leaveGroup.useMutation({
     onSuccess: async () => {
       await utils.chat.getChatRooms.invalidate();
-      // Optionally navigate back if user left this room
       if (onBack) onBack();
     },
   });
@@ -107,9 +120,7 @@ export function ChatRoom({
   const sendMessage = api.chat.sendMessage.useMutation({
     onMutate: async (newMessage) => {
       await utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
-
       if (!session?.user || !newMessage.clientId) return;
-
       const optimisticMessage: MessageType & { clientId: string } = {
         id: newMessage.clientId,
         text: newMessage.text,
@@ -134,7 +145,6 @@ export function ChatRoom({
             }
           : null,
       };
-
       addMessageToCache(utils, optimisticMessage, chatRoomId);
       scrollToBottom("auto");
       setText("");
@@ -161,7 +171,6 @@ export function ChatRoom({
     }
   };
 
-  // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -201,40 +210,24 @@ export function ChatRoom({
     );
   }
 
-  // Get chat name and avatar for header
-  const getChatInfo = (): {
-    name: string;
-    avatar: string | null;
-    lastSeen: Date | null;
-  } => {
-    if (!chatRoom) return { name: "Chat", avatar: null, lastSeen: null };
-
+  const getChatInfo = (): { name: string; avatar: string | null } => {
+    if (!chatRoom) return { name: "Chat", avatar: null };
     if (chatRoom.isGroup) {
       return {
         name: chatRoom.name ?? "Group Chat",
         avatar: null,
-        lastSeen: null,
       };
     }
-
-    // For DM, show the other user's info
-    const otherUser = chatRoom.users.find((u) => u.id !== session.user.id);
-    if (!otherUser) return { name: "Chat", avatar: null, lastSeen: null };
-
     return {
-      name: otherUser.name ?? "User",
-      avatar: otherUser.image ?? null,
-      lastSeen: otherUser.lastSeen,
+      name: otherUser?.name ?? "User",
+      avatar: otherUser?.image ?? null,
     };
   };
 
   const chatInfo = getChatInfo();
 
-  // Removed Online indicator; using explicit Last Seen text in header
-
   return (
     <div className="flex h-full flex-col">
-      {/* Header with profile info */}
       <div className="flex items-center gap-3 border-b p-3">
         {onBack && (
           <Button
@@ -257,9 +250,16 @@ export function ChatRoom({
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{chatInfo.name}</h2>
           <p className="text-muted-foreground text-xs">
-            {chatInfo.lastSeen
-              ? `Last seen ${new Date(chatInfo.lastSeen).toLocaleString()}`
-              : "Last seen: unknown"}
+            {!chatRoom?.isGroup
+              ? `Last seen: ${
+                  lastSeenFromMessages
+                    ? lastSeenFromMessages.toLocaleString("id-ID", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"
+                }`
+              : ""}
           </p>
         </div>
 
@@ -277,7 +277,6 @@ export function ChatRoom({
                   <DialogDescription>Manage name and members</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-6">
-                  {/* Rename */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Rename group</label>
                     <div className="flex gap-2">
@@ -301,7 +300,6 @@ export function ChatRoom({
                     </div>
                   </div>
 
-                  {/* Members */}
                   <div className="space-y-2">
                     <div className="text-sm font-medium">Members</div>
                     <div className="space-y-2">
@@ -322,7 +320,6 @@ export function ChatRoom({
                             </Avatar>
                             <span className="text-sm">{u.name}</span>
                           </div>
-                          {/* Allow removing other members; self uses Leave button below */}
                           {u.id !== session?.user?.id && (
                             <Button
                               variant="ghost"
@@ -343,7 +340,6 @@ export function ChatRoom({
                     </div>
                   </div>
 
-                  {/* Invite */}
                   <div className="space-y-2">
                     <div className="text-sm font-medium">Invite members</div>
                     <div className="flex flex-wrap gap-2">
