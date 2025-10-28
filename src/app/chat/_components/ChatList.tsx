@@ -99,7 +99,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     const lastMsg = msgs[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    return `{lastMsg.text}`;
+    return `${lastMsg.text}`;
   };
 
   // Subscribe to Pusher for each chat room to keep list in sync without polling
