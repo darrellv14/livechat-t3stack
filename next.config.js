@@ -7,10 +7,6 @@ import "./src/env.js";
 /** @type {import("next").NextConfig} */
 const config = {
   basePath: process.env.NODE_ENV === 'production' ? '/chat' : undefined,
-  // Asset prefix agar static files tetap load dari domain asli
-  assetPrefix: process.env.NODE_ENV === 'production' 
-    ? 'https://livechat-t3stack.vercel.app'
-    : undefined,
 };
 
 export default config;
