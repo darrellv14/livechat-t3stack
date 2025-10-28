@@ -264,6 +264,7 @@ export const chatRouter = createTRPCRouter({
         text: z.string().min(1),
         chatRoomId: z.string(),
         clientId: z.string().optional(),
+        replyToId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -284,6 +285,7 @@ export const chatRouter = createTRPCRouter({
           image: ctx.session.user.image,
         },
         clientId: input.clientId,
+        replyTo: undefined,
       });
 
       // Atomically create message and update room timestamp in the background
@@ -293,6 +295,7 @@ export const chatRouter = createTRPCRouter({
             text: input.text,
             chatRoomId: input.chatRoomId,
             userId: ctx.session.user.id,
+            replyToId: input.replyToId ?? null,
           },
           include: {
             user: {
@@ -300,6 +303,13 @@ export const chatRouter = createTRPCRouter({
                 id: true,
                 name: true,
                 image: true,
+              },
+            },
+            replyTo: {
+              select: {
+                id: true,
+                text: true,
+                user: { select: { id: true, name: true } },
               },
             },
           },
@@ -326,6 +336,7 @@ export const chatRouter = createTRPCRouter({
           image: message.user.image,
         },
         clientId: input.clientId,
+        replyTo: message.replyTo
       });
 
       // Also notify all participants via their user channel so that devices not subscribed to the room yet can update their chat list instantly
@@ -716,6 +727,13 @@ export const chatRouter = createTRPCRouter({
               image: true,
             },
           },
+          replyTo: {
+            select: {
+              id: true,
+              text: true,
+              user: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: {
           createdAt: "asc",
@@ -746,6 +764,13 @@ export const chatRouter = createTRPCRouter({
         include: {
           user: {
             select: { id: true, name: true, image: true },
+          },
+          replyTo: {
+            select: {
+              id: true,
+              text: true,
+              user: { select: { id: true, name: true } },
+            },
           },
         },
         orderBy: { createdAt: "desc" },

@@ -14,7 +14,7 @@ import { Input as TextInput } from "@/components/ui/input";
 import { Input } from "@/components/ui/input";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { ArrowLeft, Send, Settings } from "lucide-react";
+import { ArrowLeft, Send, Settings, X as XIcon } from "lucide-react";
 import type { Session } from "next-auth";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -43,7 +43,7 @@ export function ChatRoom({
   const [text, setText] = useState("");
   const utils = api.useUtils();
 
-  const { scrollParentRef, messages, msgStatus, rowVirtualizer } =
+  const { scrollParentRef, messages, msgStatus, rowVirtualizer, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useChatMessages({ chatRoomId, session });
 
   const { scrollToBottom } = useChatScroll(scrollParentRef, messages.length);
@@ -53,6 +53,9 @@ export function ChatRoom({
     session,
     onNewMessage: () => scrollToBottom("smooth"),
   });
+
+  // Reply state
+  const [replyTo, setReplyTo] = useState<MessageType | null>(null);
 
   // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
@@ -116,11 +119,16 @@ export function ChatRoom({
           image: session.user.image ?? null,
         },
         clientId: newMessage.clientId,
+        replyToId: replyTo?.id ?? null,
+        replyTo: replyTo
+          ? { id: replyTo.id, text: replyTo.text, user: { id: replyTo.user.id, name: replyTo.user.name } }
+          : null,
       };
 
       addMessageToCache(utils, optimisticMessage, chatRoomId);
       scrollToBottom("auto");
       setText("");
+      setReplyTo(null);
     },
     onSettled: async () => {
       await utils.chat.getMessagesInfinite.invalidate({
@@ -138,6 +146,7 @@ export function ChatRoom({
         text: text.trim(),
         chatRoomId,
         clientId: `temp-${Date.now()}`,
+        replyToId: replyTo?.id,
       });
     }
   };
@@ -346,6 +355,18 @@ export function ChatRoom({
         className="bg-muted/20 flex-1 overflow-y-auto p-4"
         ref={scrollParentRef}
       >
+        {hasNextPage && (
+          <div className="mb-2 flex justify-center">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? "Loading..." : "Load previous messages"}
+            </Button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="text-muted-foreground flex h-full items-center justify-center">
             No messages yet. Start the conversation!
@@ -358,17 +379,18 @@ export function ChatRoom({
             }}
           >
             {rowVirtualizer.getVirtualItems().map((vi) => {
-              const msg = messages[vi.index] as MessageType;
+              const msg = messages[vi.index]! as MessageType;
               return (
                 <div
-                  key={msg.id}
+                  key={vi.key}
+                  data-index={vi.index}
                   ref={rowVirtualizer.measureElement}
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${vi.start}px)`,
+                    transform: `translate3d(0, ${vi.start}px, 0)`,
                   }}
                   className="px-2 py-1"
                 >
@@ -381,6 +403,7 @@ export function ChatRoom({
                         limit: 50,
                       })
                     }
+                    onReply={(m) => setReplyTo(m)}
                   />
                 </div>
               );
@@ -390,6 +413,17 @@ export function ChatRoom({
       </div>
 
       <div className="border-t p-4">
+        {replyTo && (
+          <div className="mb-2 flex items-start justify-between rounded-md border bg-muted/50 p-2 text-xs">
+            <div className="mr-2 truncate">
+              <p className="font-semibold">Replying to {replyTo?.user.name ?? "User"}</p>
+              <p className="line-clamp-2 opacity-80">{replyTo.text}</p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}>
+              <XIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
         <form
           onSubmit={handleSendMessage}
           className="flex w-full items-center gap-2"

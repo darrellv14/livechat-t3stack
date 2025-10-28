@@ -95,7 +95,12 @@ model Message {
     chatRoomId String
     user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
     userId     String
+    // Optional reply-to relationship for message threading
+    replyTo    Message?  @relation("MessageReplies", fields: [replyToId], references: [id])
+    replyToId  String?
+    replies    Message[] @relation("MessageReplies")
 
     @@index([chatRoomId, createdAt])
     @@index([userId])
+    @@index([replyToId])
 }

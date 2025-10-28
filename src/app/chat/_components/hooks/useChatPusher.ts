@@ -167,31 +167,71 @@ export function useChatPusher({
     };
   }, [chatRoomId, utils, session, onNewMessage]);
 
-  // Light fallback: if no events for a while (e.g., socket hiccup), invalidate to refetch
+  // Smarter fallback: one-shot idle timer with exponential backoff + refetch on reconnect/visibility
   useEffect(() => {
     if (!chatRoomId) return;
-  const POLL_MS = 500; // 1s fallback per request
 
-    const tick = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      const idleFor = Date.now() - lastEventRef.current;
-      if (idleFor >= POLL_MS) {
+    const BASE_MS = 15000; // 15s base idle window
+    const MAX_MS = 60000; // cap backoff at 60s
+    let timeoutId: number | null = null;
+    let backoff = BASE_MS;
+
+    const schedule = () => {
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+          // Don't refetch while hidden; try again later
+          backoff = Math.min(backoff * 2, MAX_MS);
+          schedule();
+          return;
+        }
         void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 });
-      }
+        backoff = Math.min(backoff * 2, MAX_MS);
+        schedule();
+      }, backoff);
     };
 
-    const interval = window.setInterval(tick, POLL_MS);
+    const reset = () => {
+      backoff = BASE_MS;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      schedule();
+    };
 
+    // Kick off timer
+    reset();
+
+    // Reset on visibility gain
     const onVis = () => {
       if (document.visibilityState === "visible") {
         lastEventRef.current = Date.now();
         void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 });
+        reset();
       }
     };
     document.addEventListener("visibilitychange", onVis);
 
+    // Reset on pusher reconnect
+    try {
+      const client = getPusherClient();
+      client.connection.bind("connected", () => {
+        lastEventRef.current = Date.now();
+        void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 });
+        reset();
+      });
+    } catch {}
+
+    // Also reset after any event (covered by handlers above), but ensure timer is fresh periodically
+    const softTick = window.setInterval(() => {
+      // If we've received events recently, just keep base backoff
+      const idle = Date.now() - lastEventRef.current;
+      if (idle < BASE_MS) {
+        backoff = BASE_MS;
+      }
+    }, BASE_MS);
+
     return () => {
-      clearInterval(interval);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      window.clearInterval(softTick);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [chatRoomId, utils]);

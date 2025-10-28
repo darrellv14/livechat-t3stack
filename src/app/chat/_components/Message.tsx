@@ -25,15 +25,19 @@ import type { Session } from "next-auth";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-type ChatMessage = RouterOutputs["chat"]["getMessages"][number];
+type ChatMessage = RouterOutputs["chat"]["getMessages"][number] &
+  Partial<{
+    replyTo: { id: string; text: string; user: { id: string; name: string | null } } | null;
+  }>;
 
 interface MessageProps {
   message: ChatMessage;
   session: Session;
   onMessageUpdated?: () => void;
+  onReply?: (message: ChatMessage) => void;
 }
 
-export function Message({ message, session, onMessageUpdated }: MessageProps) {
+export function Message({ message, session, onMessageUpdated, onReply }: MessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [expanded, setExpanded] = useState(false);
@@ -172,6 +176,15 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
           </div>
         ) : (
           <>
+            {message.replyTo && (
+              <div className={cn(
+                "mb-1 rounded-md border px-2 py-1 text-xs",
+                isCurrentUser ? "border-white/30" : "border-foreground/10",
+              )}>
+                <p className="font-semibold opacity-80">{message.replyTo?.user?.name ?? "User"}</p>
+                <p className="line-clamp-2 opacity-70">{message.replyTo?.text}</p>
+              </div>
+            )}
             <p className={cn(
               "text-sm wrap-break-word whitespace-pre-wrap",
               !expanded && showReadMore && "line-clamp-6",
@@ -222,6 +235,10 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onReply?.(message)}>
+                <Edit2 className="mr-2 h-4 w-4 rotate-180" />
+                Reply
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setIsEditing(true)} disabled={isTemporary}>
                 <Edit2 className="mr-2 h-4 w-4" />
                 Edit

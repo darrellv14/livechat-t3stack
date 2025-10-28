@@ -22,7 +22,8 @@ export function useChatMessages({ chatRoomId, session }: ChatRoomProps) {
       // Disable polling, rely on Pusher for real-time updates
       refetchOnWindowFocus: false,
       refetchInterval: false,
-      staleTime: Infinity, // Data is fresh until invalidated
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 60 * 60 * 1000, // keep cached pages for 1 hour to preserve history when toggling
     },
   );
 
@@ -69,5 +70,8 @@ export function useChatMessages({ chatRoomId, session }: ChatRoomProps) {
     messages,
     msgStatus,
     rowVirtualizer,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
   };
 }
