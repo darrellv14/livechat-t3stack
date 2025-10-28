@@ -3,28 +3,26 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { env } from "@/env";
-import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, Send } from "lucide-react";
+import type { Session } from "next-auth";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Message } from "./Message";
+import { useChatMessages } from "./hooks/useChatMessages";
+import { useChatPusher } from "./hooks/useChatPusher";
+import { useChatScroll } from "./hooks/useChatScroll";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
-type ChatListRooms = RouterOutputs["chat"]["getChatRooms"];
-type ChatListRoomItem = ChatListRooms[number];
-type ChatListMessage = {
-  id: string;
-  text: string;
-  createdAt: Date | string;
-  isDeleted: boolean;
-  user: { id: string; name: string | null };
-};
+
+export interface ChatRoomProps {
+  chatRoomId: string;
+  session: Session | null;
+  onBack?: () => void;
+}
 
 export function ChatRoom({
   chatRoomId,
@@ -35,16 +33,18 @@ export function ChatRoom({
 }) {
   const { data: session, status } = useSession();
   const [text, setText] = useState("");
-  const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
-  // Auto-scroll disabled: let users manage their own scroll position
-  const scrollToBottom = () => {
-    const el = scrollParentRef.current;
-    if (el) {
-      // Immediately jump to bottom after sending
-      el.scrollTop = el.scrollHeight;
-    }
-  };
+
+  const { scrollParentRef, messages, msgStatus, rowVirtualizer } =
+    useChatMessages({ chatRoomId, session });
+
+  const { scrollToBottom } = useChatScroll(scrollParentRef, messages.length);
+
+  const { addMessageToCache } = useChatPusher({
+    chatRoomId,
+    session,
+    onNewMessage: () => scrollToBottom("smooth"),
+  });
 
   // Get chat room info for header
   const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
@@ -55,298 +55,50 @@ export function ChatRoom({
     },
   );
 
-  const {
-    data: pages,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    status: msgStatus,
-  } = api.chat.getMessagesInfinite.useInfiniteQuery(
-    { chatRoomId, limit: 50 },
-    {
-      enabled: !!chatRoomId && !!session,
-      getNextPageParam: (last) => last.nextCursor,
-      refetchOnWindowFocus: false,
-      refetchInterval: false,
-      staleTime: 30000,
-    },
-  );
-
-  const messages = pages?.pages.flatMap((p) => p.items) ?? [];
-
   const sendMessage = api.chat.sendMessage.useMutation({
-    onMutate: (newMessage) => {
-      // Keep UI instantaneous: don't await cancel
-      void utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
-      const previous = utils.chat.getMessagesInfinite.getInfiniteData({
+    onMutate: async (newMessage) => {
+      await utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
+
+      if (!session?.user || !newMessage.clientId) return;
+
+      const optimisticMessage: MessageType & { clientId: string } = {
+        id: newMessage.clientId,
+        text: newMessage.text,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isEdited: false,
+        isDeleted: false,
+        chatRoomId: newMessage.chatRoomId,
+        userId: session.user.id,
+        user: {
+          id: session.user.id,
+          name: session.user.name ?? "User",
+          image: session.user.image ?? null,
+        },
+        clientId: newMessage.clientId,
+      };
+
+      addMessageToCache(utils, optimisticMessage, chatRoomId);
+      scrollToBottom("auto");
+      setText("");
+    },
+    onSettled: async () => {
+      await utils.chat.getMessagesInfinite.invalidate({
         chatRoomId,
         limit: 50,
       });
-
-      if (session?.user) {
-        const tempId = newMessage.clientId ?? `temp-${Date.now()}`;
-        const tempMsg = {
-          id: tempId,
-          text: newMessage.text,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isEdited: false,
-          isDeleted: false,
-          chatRoomId: newMessage.chatRoomId,
-          userId: session.user.id,
-          user: {
-            id: session.user.id,
-            name: session.user.name ?? null,
-            image: session.user.image ?? null,
-          },
-        } as MessageType;
-        utils.chat.getMessagesInfinite.setInfiniteData(
-          { chatRoomId, limit: 50 },
-          (data) => {
-            if (!data || data.pages.length === 0) {
-              return {
-                pages: [{ items: [tempMsg], nextCursor: undefined }],
-                pageParams: [undefined],
-              } as unknown as typeof data;
-            }
-            const pagesCopy = [...data.pages];
-            const first = pagesCopy[0]!;
-            pagesCopy[0] = {
-              ...first,
-              items: [...first.items, tempMsg],
-            };
-            return { ...data, pages: pagesCopy };
-          },
-        );
-        return { previous, tempId };
-      }
-
-      return { previous };
-    },
-    onError: (_err, _newMessage, ctx) => {
-      if (ctx?.previous) {
-        utils.chat.getMessagesInfinite.setInfiniteData(
-          { chatRoomId, limit: 50 },
-          () => ctx.previous,
-        );
-      }
-    },
-    onSuccess: () => {
-      setText("");
-      // Scroll to the latest message we just added
-      // Use rAF to ensure DOM updates applied before measuring scrollHeight
-      if (typeof window !== "undefined") {
-        requestAnimationFrame(scrollToBottom);
-      }
-    },
-    onSettled: async () => {
-      // Ensure eventual consistency in case a Pusher event is missed
-      await Promise.all([
-        utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 }),
-        utils.chat.getChatRooms.invalidate(),
-      ]);
+      await utils.chat.getChatRooms.invalidate();
     },
   });
 
-  // No auto-scroll logic
-
-  // Setup Pusher (singleton client)
-  useEffect(() => {
-    if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY) {
-      return;
-    }
-
-    getPusherClient();
-    const channel = subscribe(chatRoomId);
-
-    type EventMessage = Omit<MessageType, "user"> & {
-      user: { id: string; name: string | null; image: string | null };
-    } & { clientId?: string };
-    channel.bind("new-message", (payload: EventMessage) => {
-      // Debug aid: observe real-time events in the console during development
-      if (process.env.NODE_ENV !== "production") {
-        console.debug("[Pusher] new-message", {
-          room: chatRoomId,
-          id: payload.id,
-        });
-      }
-      utils.chat.getMessagesInfinite.setInfiniteData(
-        { chatRoomId, limit: 50 },
-        (data) => {
-          if (!data) {
-            return {
-              pages: [{ items: [payload], nextCursor: undefined }],
-              pageParams: [undefined],
-            } as unknown as typeof data;
-          }
-          const pagesCopy = [...data.pages];
-          const lastPage = pagesCopy[pagesCopy.length - 1]!;
-          const items = lastPage.items ?? [];
-
-          // Remove temp message if exists
-          const filteredItems = items.filter((m) => {
-            if (typeof m.id === "string" && m.id.startsWith("temp-")) {
-              if (payload.clientId && m.id === payload.clientId) return false;
-              if (m.text === payload.text && m.userId === payload.user.id)
-                return false;
-            }
-            return true;
-          });
-
-          // Check if message already exists
-          const exists = filteredItems.some((m) => m.id === payload.id);
-          const nextItems = exists
-            ? filteredItems.map((m) => (m.id === payload.id ? payload : m))
-            : [...filteredItems, payload];
-
-          pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: nextItems };
-          return { ...data, pages: pagesCopy };
-        },
-      );
-
-      // If user is already near the bottom, keep them at the newest message
-      const el = scrollParentRef.current;
-      if (el) {
-        const distanceFromBottom =
-          el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distanceFromBottom < 64) {
-          // Slight delay to allow DOM to paint
-          requestAnimationFrame(scrollToBottom);
-        }
-      }
-
-      utils.chat.getChatRooms.setData(
-        undefined,
-        (rooms: ChatListRooms | undefined) => {
-          if (!rooms) return rooms;
-          const updated = rooms.map((room: ChatListRoomItem) => {
-            if (room.id !== payload.chatRoomId) return room;
-            return {
-              ...room,
-              updatedAt: payload.createdAt,
-              messages: [
-                {
-                  id: payload.id,
-                  text: payload.text,
-                  createdAt: payload.createdAt,
-                  isDeleted: false,
-                  user: {
-                    id: payload.user.id,
-                    name: payload.user.name,
-                  },
-                },
-              ],
-            };
-          });
-          updated.sort(
-            (a, b) =>
-              new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-          );
-          return updated;
-        },
-      );
-    });
-
-    channel.bind("edit-message", (payload: MessageType) => {
-      utils.chat.getMessagesInfinite.setInfiniteData(
-        { chatRoomId, limit: 50 },
-        (data) => {
-          if (!data) return data;
-          return {
-            ...data,
-            pages: data.pages.map((p) => ({
-              ...p,
-              items: p.items.map((m) => (m.id === payload.id ? payload : m)),
-            })),
-          };
-        },
-      );
-    });
-
-    channel.bind("delete-message", (payload: { messageId: string }) => {
-      utils.chat.getMessagesInfinite.setInfiniteData(
-        { chatRoomId, limit: 50 },
-        (data) => {
-          if (!data) return data;
-          return {
-            ...data,
-            pages: data.pages.map((p) => ({
-              ...p,
-              items: p.items.filter((m) => m.id !== payload.messageId),
-            })),
-          };
-        },
-      );
-      // Also update chat list cache last message if it was the deleted one
-      utils.chat.getChatRooms.setData(
-        undefined,
-        (rooms: ChatListRooms | undefined) => {
-          if (!rooms) return rooms;
-          return rooms.map((room: ChatListRoomItem) => {
-            if (room.id !== chatRoomId) return room;
-            const roomWithMsgs = room as Partial<{
-              messages?: ChatListMessage[];
-            }>;
-            const msgs: ChatListMessage[] = Array.isArray(roomWithMsgs.messages)
-              ? roomWithMsgs.messages
-              : [];
-            const last: ChatListMessage | undefined = msgs[0];
-            if (!last || last.id !== payload.messageId) return room;
-            return {
-              ...room,
-              messages: [],
-            };
-          });
-        },
-      );
-    });
-
-    return () => {
-      try {
-        channel.unbind_all();
-      } finally {
-        unsubscribe(chatRoomId);
-      }
-    };
-  }, [chatRoomId, utils, session?.user.id]);
-
-  // Virtualizer setup for messages
-  const rowVirtualizer = useVirtualizer({
-    count: messages.length,
-    getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => 80,
-    overscan: 10,
-  });
-
-  // Infinite scroll upwards when near top
-  useEffect(() => {
-    const el = scrollParentRef.current;
-    if (!el) return;
-    let ticking = false;
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        ticking = false;
-        if (el.scrollTop < 200 && hasNextPage && !isFetchingNextPage) {
-          const prevHeight = el.scrollHeight;
-          void fetchNextPage().then(() => {
-            // maintain scroll position so content doesn't jump
-            const newHeight = el.scrollHeight;
-            el.scrollTop += newHeight - prevHeight;
-          });
-        }
-      });
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const handleSendMessage = async (e: FormEvent) => {
+  const handleSendMessage = (e: FormEvent) => {
     e.preventDefault();
     if (text.trim() && chatRoomId) {
-      const clientId = `temp-${Date.now()}`;
-      sendMessage.mutate({ text: text.trim(), chatRoomId, clientId });
+      sendMessage.mutate({
+        text: text.trim(),
+        chatRoomId,
+        clientId: `temp-${Date.now()}`,
+      });
     }
   };
 
@@ -354,7 +106,7 @@ export function ChatRoom({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void handleSendMessage(e);
+      handleSendMessage(e);
     }
   };
 
@@ -399,22 +151,7 @@ export function ChatRoom({
     }
 
     // For DM, show the other user's info
-    let otherUser:
-      | {
-          id: string;
-          name: string | null;
-          image: string | null;
-          lastSeen: Date | null;
-        }
-      | undefined;
-    for (const u of chatRoom.users) {
-      if (u?.id && u.id !== session.user.id) {
-        otherUser = u as typeof otherUser extends undefined
-          ? never
-          : NonNullable<typeof otherUser>;
-        break;
-      }
-    }
+    const otherUser = chatRoom.users.find((u) => u.id !== session.user.id);
     if (!otherUser) return { name: "Chat", avatar: null, lastSeen: null };
 
     return {
@@ -456,7 +193,6 @@ export function ChatRoom({
           </Button>
         )}
 
-        {/* Profile Picture */}
         <Avatar className="h-10 w-10 shrink-0">
           <AvatarImage src={chatInfo.avatar ?? ""} alt={chatInfo.name} />
           <AvatarFallback>
@@ -464,7 +200,6 @@ export function ChatRoom({
           </AvatarFallback>
         </Avatar>
 
-        {/* Name and Status */}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{chatInfo.name}</h2>
           <div className="flex items-center gap-1.5">
@@ -480,7 +215,6 @@ export function ChatRoom({
           </div>
         </div>
 
-        {/* Message count */}
         <div className="shrink-0 text-right">
           <p className="text-muted-foreground text-xs">
             {messages?.length ?? 0} messages
@@ -492,7 +226,7 @@ export function ChatRoom({
         className="bg-muted/20 flex-1 overflow-y-auto p-4"
         ref={scrollParentRef}
       >
-        {!messages || messages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="text-muted-foreground flex h-full items-center justify-center">
             No messages yet. Start the conversation!
           </div>
@@ -508,9 +242,7 @@ export function ChatRoom({
               return (
                 <div
                   key={msg.id}
-                  ref={(el) => {
-                    if (el) rowVirtualizer.measureElement(el);
-                  }}
+                  ref={rowVirtualizer.measureElement}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -533,8 +265,6 @@ export function ChatRoom({
                 </div>
               );
             })}
-
-            {/* Auto-scroll anchor removed */}
           </div>
         )}
       </div>
