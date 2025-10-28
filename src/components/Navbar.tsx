@@ -82,9 +82,7 @@ export function Navbar() {
               </DropdownMenu>
             </>
           ) : (
-            <Link href="/api/auth/signin">
-              <Button>Sign in</Button>
-            </Link>
+            <Button onClick={() => signIn("google")}>Sign in</Button>
           )}
         </div>
       </div>
