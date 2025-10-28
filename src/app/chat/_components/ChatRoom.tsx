@@ -4,15 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
-import { Send } from "lucide-react";
+import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
-import { deriveKeyFromPassphrase, encryptText, decryptText as decryptTextFn, randomBytes } from "@/lib/crypto";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
-import { ChatHeader } from "./ChatHeader";
 import { env } from "@/env";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
@@ -29,8 +27,6 @@ export function ChatRoom({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
-  const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
-  const [locked, setLocked] = useState(true);
 
   const {
     data: pages,
@@ -44,13 +40,14 @@ export function ChatRoom({
       enabled: !!chatRoomId && !!session,
       getNextPageParam: (last) => last.nextCursor,
       refetchOnWindowFocus: false,
+      refetchInterval: false,
+      staleTime: 30000,
     },
   );
 
   const messages = pages?.pages.flatMap((p) => p.items) ?? [];
 
   const sendMessage = api.chat.sendMessage.useMutation({
-    // Re-introduce a minimal optimistic update for instant UX
     onMutate: async (newMessage) => {
       await utils.chat.getMessagesInfinite.cancel({ chatRoomId, limit: 50 });
       const previous = utils.chat.getMessagesInfinite.getInfiniteData({ chatRoomId, limit: 50 });
@@ -77,8 +74,8 @@ export function ChatRoom({
             return { pages: [{ items: [tempMsg], nextCursor: undefined }], pageParams: [undefined] } as unknown as typeof data;
           }
           const pagesCopy = [...data.pages];
-          const first = pagesCopy[0]!;
-          pagesCopy[0] = { ...first, items: [...first.items, tempMsg] };
+          const last = pagesCopy[pagesCopy.length - 1]!;
+          pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
           return { ...data, pages: pagesCopy };
         });
         return { previous, tempId };
@@ -92,47 +89,29 @@ export function ChatRoom({
       }
     },
     onSuccess: () => {
-      // Clear input after successful send; Pusher event will reconcile/replace temp message
       setText("");
     },
   });
 
   const scrollToBottom = () => {
-    const el = scrollParentRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const nearBottomRef = useRef(true);
   useEffect(() => {
-    const el = scrollParentRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const threshold = 120; // px
-      nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    // Only snap to bottom on initial mount or when user is near bottom
-    if (nearBottomRef.current) scrollToBottom();
+    scrollToBottom();
   }, [messages.length]);
 
-  // Setup Pusher (singleton client)
+    // Setup Pusher (singleton client)
   useEffect(() => {
     if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY) {
       return;
     }
 
-    // Ensure client is initialized
     getPusherClient();
     const channel = subscribe(chatRoomId);
 
-    // Apply updates directly to cache for instant UX (no refetch)
   type EventMessage = Omit<MessageType, "user"> & { user: { id: string; name: string | null; image: string | null } } & { clientId?: string };
   channel.bind("new-message", (payload: EventMessage) => {
-      // Update infinite cache (append to newest page)
       utils.chat.getMessagesInfinite.setInfiniteData({ chatRoomId, limit: 50 }, (data) => {
         if (!data) {
           return {
@@ -140,24 +119,29 @@ export function ChatRoom({
             pageParams: [undefined],
           } as unknown as typeof data;
         }
-        // Append to the newest page (first page), items are ascending in that page
         const pagesCopy = [...data.pages];
-        const newestPage = pagesCopy[0]!;
-        const items = newestPage.items ?? [];
-        const exists = items.some((m) => m.id === payload.id);
-        const nextItems = exists ? items.map((m) => (m.id === payload.id ? payload : m)) : [...items, payload];
-        // Remove optimistic temp
-        const deduped = nextItems.filter((m) => {
+        const lastPage = pagesCopy[pagesCopy.length - 1]!;
+        const items = lastPage.items ?? [];
+        
+        // Remove temp message if exists
+        const filteredItems = items.filter((m) => {
           if (typeof m.id === "string" && m.id.startsWith("temp-")) {
             if (payload.clientId && m.id === payload.clientId) return false;
             if (m.text === payload.text && m.userId === payload.user.id) return false;
           }
           return true;
         });
-        pagesCopy[0] = { ...newestPage, items: deduped };
+        
+        // Check if message already exists
+        const exists = filteredItems.some((m) => m.id === payload.id);
+        const nextItems = exists 
+          ? filteredItems.map((m) => (m.id === payload.id ? payload : m)) 
+          : [...filteredItems, payload];
+        
+        pagesCopy[pagesCopy.length - 1] = { ...lastPage, items: nextItems };
         return { ...data, pages: pagesCopy };
       });
-      // Update chat list cache in-place (no network)
+      
       utils.chat.getChatRooms.setData(undefined, (rooms) => {
         if (!rooms) return rooms;
         const updated = rooms.map((room) => {
@@ -179,16 +163,13 @@ export function ChatRoom({
             ],
           } as typeof room;
         });
-        // Sort by updatedAt desc to mirror server ordering
         updated.sort(
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         );
         return updated;
       });
-      // Scroll down when new message arrives only if user is near bottom or this client is the sender
-      if (nearBottomRef.current || payload.user.id === session?.user?.id) {
-        scrollToBottom();
-      }
+      
+      scrollToBottom();
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
@@ -233,9 +214,7 @@ export function ChatRoom({
     return () => {
       unsubscribe(chatRoomId);
     };
-    // utils is stable for tRPC, but we avoid resubscribing unnecessarily
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatRoomId]);
+  }, [chatRoomId, utils]);
 
   // Virtualizer setup for messages
   const rowVirtualizer = useVirtualizer({
@@ -269,40 +248,11 @@ export function ChatRoom({
     return () => el.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Decrypt helper passed to Message components
-  const decryptHelper = roomKey
-    ? async (cipher: string) => decryptTextFn(roomKey, cipher)
-    : async () => null;
-
-  // Key management: prompt for passphrase to derive key
-  const handleSetKey = async () => {
-    const pass = prompt("Enter shared passphrase for this room:");
-    if (!pass) return;
-    // If salt exists reuse, else create
-    const lsKey = `chat-salt:${chatRoomId}`;
-    let saltB64 = localStorage.getItem(lsKey);
-    if (!saltB64) {
-      const salt = randomBytes(16);
-      saltB64 = btoa(String.fromCharCode(...salt));
-      localStorage.setItem(lsKey, saltB64);
-    }
-    const salt = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
-    const key = await deriveKeyFromPassphrase(pass, salt);
-    setRoomKey(key);
-    setLocked(false);
-  };
-
-  const handleLock = () => {
-    setRoomKey(null);
-    setLocked(true);
-  };
-
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (text.trim() && chatRoomId) {
       const clientId = `temp-${Date.now()}`;
-      const outgoing = roomKey ? await encryptText(roomKey, text.trim()) : text.trim();
-      sendMessage.mutate({ text: outgoing, chatRoomId, clientId });
+      sendMessage.mutate({ text: text.trim(), chatRoomId, clientId });
     }
   };
 
@@ -340,12 +290,29 @@ export function ChatRoom({
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader
-        chatRoomId={chatRoomId}
-        onBack={onBack}
-        locked={locked}
-        onToggleLock={locked ? handleSetKey : handleLock}
-      />
+      {/* Header with optional back button for mobile */}
+      <div className="flex items-center gap-3 border-b p-4">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onBack}
+            className="shrink-0 md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        )}
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold">Chat</h2>
+          <p className="text-muted-foreground text-sm">
+            {messages?.length ?? 0} messages
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+          <span className="text-muted-foreground text-xs">Live</span>
+        </div>
+      </div>
 
       <div className="flex-1 overflow-y-auto p-4" ref={scrollParentRef}>
         {!messages || messages.length === 0 ? (
@@ -376,7 +343,6 @@ export function ChatRoom({
                     <Message
                       message={msg}
                       session={session}
-                      decryptText={decryptHelper}
                       onMessageUpdated={() =>
                         void utils.chat.getMessagesInfinite.invalidate({ chatRoomId, limit: 50 })
                       }

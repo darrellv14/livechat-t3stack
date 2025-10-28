@@ -14,7 +14,7 @@ import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 import { Check, Edit2, MoreVertical, Trash2, X } from "lucide-react";
 import type { Session } from "next-auth";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type ChatMessage = RouterOutputs["chat"]["getMessages"][number];
@@ -23,13 +23,11 @@ interface MessageProps {
   message: ChatMessage;
   session: Session;
   onMessageUpdated?: () => void;
-  decryptText?: (cipher: string) => Promise<string | null>;
 }
 
-export function Message({ message, session, onMessageUpdated, decryptText }: MessageProps) {
+export function Message({ message, session, onMessageUpdated }: MessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
-  const [decrypted, setDecrypted] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const isCurrentUser = message.userId === session.user.id;
   const utils = api.useUtils();
@@ -77,29 +75,12 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
     return created > oneMinuteAgo;
   };
 
-  // Try to decrypt if encrypted
-  const isEncrypted = typeof message.text === "string" && message.text.startsWith("enc:");
-  useEffect(() => {
-    let active = true;
-    if (isEncrypted && decryptText) {
-      void decryptText(message.text).then((pt) => {
-        if (active) setDecrypted(pt);
-      });
-    } else {
-      setDecrypted(null);
-    }
-    return () => {
-      active = false;
-    };
-  }, [isEncrypted, decryptText, message.text]);
-
   const content = useMemo(() => {
-    return isEncrypted ? (decrypted ?? "🔒 Encrypted message") : message.text;
-  }, [isEncrypted, decrypted, message.text]);
+    return message.text;
+  }, [message.text]);
 
   const showReadMore = useMemo(() => {
     if (!content) return false;
-    // Heuristic: long texts likely need expansion
     const longByLength = content.length > 280;
     const longByLines = content.split(/\n/).length > 6;
     return longByLength || longByLines;
@@ -108,7 +89,7 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
   return (
     <div
       className={cn(
-        "flex items-end gap-2 px-2",
+        "flex items-end gap-2",
         isCurrentUser ? "flex-row-reverse" : "flex-row",
       )}
     >
@@ -126,10 +107,8 @@ export function Message({ message, session, onMessageUpdated, decryptText }: Mes
 
       <div
         className={cn(
-          "group relative max-w-[75%] rounded-2xl px-4 py-2",
-          isCurrentUser
-            ? "bg-primary text-primary-foreground ml-auto"
-            : "bg-muted mr-auto",
+          "group relative max-w-[70%] rounded-lg px-4 py-2",
+          isCurrentUser ? "bg-primary text-primary-foreground" : "bg-muted",
         )}
       >
         {!isCurrentUser && (

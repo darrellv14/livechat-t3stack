@@ -29,7 +29,11 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
   const { data: session } = useSession();
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const { data: chatRooms, isLoading: loadingChats } =
-    api.chat.getChatRooms.useQuery();
+    api.chat.getChatRooms.useQuery(undefined, {
+      refetchOnWindowFocus: false,
+      refetchInterval: false,
+      staleTime: 10000,
+    });
   const utils = api.useUtils();
   const { data: users } = api.chat.getUsers.useQuery();
   const createDM = api.chat.getOrCreateDirectMessage.useMutation({
@@ -64,16 +68,12 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     const lastMsg = chat.messages[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
-    const text = typeof lastMsg.text === "string" && lastMsg.text.startsWith("enc:")
-      ? "🔒 Encrypted message"
-      : lastMsg.text;
-    return `${lastMsg.user.name}: ${text}`;
+    return `${lastMsg.user.name}: ${lastMsg.text}`;
   };
 
   // Subscribe to Pusher for each chat room to keep list in sync without polling
   useEffect(() => {
     if (!chatRooms || !env.NEXT_PUBLIC_PUSHER_KEY) return;
-    // ensure client initialized once
     getPusherClient();
 
     const subscriptions = chatRooms.map((room) => {
@@ -87,8 +87,11 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
       }) => {
         utils.chat.getChatRooms.setData(undefined, (rooms) => {
           if (!rooms) return rooms;
+          
+          let roomUpdated = false;
           const updated = rooms.map((r) => {
             if (r.id !== payload.chatRoomId) return r;
+            roomUpdated = true;
             return {
               ...r,
               updatedAt: payload.createdAt as Date,
@@ -103,14 +106,16 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
               ],
             } as typeof r;
           });
+          
+          // If room not found in cache, don't update - let refetch handle it
+          if (!roomUpdated) return rooms;
+          
           updated.sort(
             (a, b) =>
               new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
           );
           return updated;
         });
-        // Also proactively invalidate to refetch in background ensuring counts/ordering are fresh
-        void utils.chat.getChatRooms.invalidate();
       });
 
       ch.bind("delete-message", (payload: { messageId: string }) => {
@@ -220,10 +225,7 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
                     <p className="font-medium">{getChatName(chat)}</p>
                     {chat.isGroup && <Badge variant="secondary">Group</Badge>}
                   </div>
-                  <p
-                    className="text-muted-foreground text-sm wrap-break-word overflow-hidden"
-                    style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
-                  >
+                  <p className="text-muted-foreground text-sm wrap-break-word line-clamp-3">
                     {getLastMessage(chat)}
                   </p>
                 </div>
