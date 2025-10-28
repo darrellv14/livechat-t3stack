@@ -1,14 +1,16 @@
 "use client";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/react";
 import { api } from "@/trpc/react";
 import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getPusherClient, subscribe, unsubscribe } from "@/lib/pusherClient";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "./Message";
 import { env } from "@/env";
@@ -27,6 +29,17 @@ export function ChatRoom({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const isUserScrollingRef = useRef(false);
+
+  // Get chat room info for header
+  const { data: chatRoom } = api.chat.getChatRoomById.useQuery(
+    { chatRoomId },
+    { 
+      enabled: !!chatRoomId,
+      refetchOnWindowFocus: false,
+    }
+  );
 
   const {
     data: pages,
@@ -78,6 +91,11 @@ export function ChatRoom({
           pagesCopy[pagesCopy.length - 1] = { ...last, items: [...last.items, tempMsg] };
           return { ...data, pages: pagesCopy };
         });
+        
+        // Force scroll to bottom after sending
+        setShouldAutoScroll(true);
+        setTimeout(() => scrollToBottom(), 50);
+        
         return { previous, tempId };
       }
 
@@ -93,13 +111,46 @@ export function ChatRoom({
     },
   });
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
+  // Check if user is at the bottom of the chat
+  const checkIfAtBottom = useCallback(() => {
+    const el = scrollParentRef.current;
+    if (!el) return false;
+    const threshold = 100; // pixels from bottom
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    return isAtBottom;
+  }, []);
+
+  // Handle user scrolling - detect if user manually scrolls
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length]);
+    const el = scrollParentRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const isAtBottom = checkIfAtBottom();
+      setShouldAutoScroll(isAtBottom);
+      
+      // Detect if user is scrolling up
+      if (!isAtBottom) {
+        isUserScrollingRef.current = true;
+      } else {
+        isUserScrollingRef.current = false;
+      }
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [checkIfAtBottom]);
+
+  // Only auto-scroll if user is at bottom or just sent a message
+  useEffect(() => {
+    if (shouldAutoScroll && messages.length > 0) {
+      scrollToBottom();
+    }
+  }, [messages.length, shouldAutoScroll, scrollToBottom]);
 
     // Setup Pusher (singleton client)
   useEffect(() => {
@@ -169,7 +220,10 @@ export function ChatRoom({
         return updated;
       });
       
-      scrollToBottom();
+      // Only auto-scroll if user is at the bottom or if it's the current user's message
+      if (shouldAutoScroll || payload.user.id === session?.user.id) {
+        setTimeout(() => scrollToBottom(), 50);
+      }
     });
 
     channel.bind("edit-message", (payload: MessageType) => {
@@ -214,7 +268,7 @@ export function ChatRoom({
     return () => {
       unsubscribe(chatRoomId);
     };
-  }, [chatRoomId, utils]);
+  }, [chatRoomId, utils, scrollToBottom, shouldAutoScroll, session?.user.id]);
 
   // Virtualizer setup for messages
   const rowVirtualizer = useVirtualizer({
@@ -288,9 +342,49 @@ export function ChatRoom({
     );
   }
 
+  // Get chat name and avatar for header
+  const getChatInfo = () => {
+    if (!chatRoom) return { name: "Chat", avatar: null, lastSeen: null };
+    
+    if (chatRoom.isGroup) {
+      return {
+        name: chatRoom.name ?? "Group Chat",
+        avatar: null,
+        lastSeen: null,
+      };
+    }
+    
+    // For DM, show the other user's info
+    const otherUser = chatRoom.users.find((u) => u.id !== session.user.id);
+    if (!otherUser) return { name: "Chat", avatar: null, lastSeen: null };
+    
+    return {
+      name: otherUser.name ?? "User",
+      avatar: otherUser.image,
+      lastSeen: otherUser.lastSeen,
+    };
+  };
+
+  const chatInfo = getChatInfo();
+  
+  const getLastSeenText = () => {
+    if (!chatInfo.lastSeen) return "Offline";
+    const lastSeen = new Date(chatInfo.lastSeen);
+    const now = new Date();
+    const diffMs = now.getTime() - lastSeen.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return "Online";
+    if (diffMins < 60) return `Active ${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Active ${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `Active ${diffDays}d ago`;
+  };
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header with optional back button for mobile */}
+      {/* Header with profile info */}
       <div className="flex items-center gap-3 border-b p-4">
         {onBack && (
           <Button
@@ -302,15 +396,34 @@ export function ChatRoom({
             <ArrowLeft className="h-5 w-5" />
           </Button>
         )}
-        <div className="flex-1">
-          <h2 className="text-lg font-semibold">Chat</h2>
-          <p className="text-muted-foreground text-sm">
+        
+        {/* Profile Picture */}
+        <Avatar className="h-10 w-10 shrink-0">
+          <AvatarImage src={chatInfo.avatar ?? ""} alt={chatInfo.name} />
+          <AvatarFallback>
+            {chatInfo.name.charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        
+        {/* Name and Status */}
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-semibold truncate">{chatInfo.name}</h2>
+          <div className="flex items-center gap-1.5">
+            <div className={cn(
+              "h-2 w-2 rounded-full",
+              getLastSeenText() === "Online" ? "bg-green-500 animate-pulse" : "bg-gray-400"
+            )} />
+            <p className="text-muted-foreground text-xs">
+              {getLastSeenText()}
+            </p>
+          </div>
+        </div>
+        
+        {/* Message count */}
+        <div className="text-right shrink-0">
+          <p className="text-muted-foreground text-xs">
             {messages?.length ?? 0} messages
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-          <span className="text-muted-foreground text-xs">Live</span>
         </div>
       </div>
 

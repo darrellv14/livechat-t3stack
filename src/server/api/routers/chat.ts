@@ -98,6 +98,7 @@ export const chatRouter = createTRPCRouter({
             name: true,
             email: true,
             image: true,
+            lastSeen: true,
           },
         },
         messages: {
@@ -126,6 +127,39 @@ export const chatRouter = createTRPCRouter({
     });
     return chatRooms;
   }),
+
+  // Get single chat room by ID for header info
+  getChatRoomById: protectedProcedure
+    .input(z.object({ chatRoomId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const chatRoom = await ctx.db.chatRoom.findUnique({
+        where: { id: input.chatRoomId },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              lastSeen: true,
+            },
+          },
+        },
+        cacheStrategy: { ttl: 5, swr: 30 },
+      });
+
+      if (!chatRoom) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Chat room not found" });
+      }
+
+      // Check if user is in this chat room
+      const isMember = chatRoom.users.some((u) => u.id === ctx.session.user.id);
+      if (!isMember) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this chat" });
+      }
+
+      return chatRoom;
+    }),
 
   sendMessage: protectedProcedure
     .input(
