@@ -6,7 +6,11 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
-  basePath: process.env.NODE_ENV === 'production' ? '/chat' : undefined,
+  basePath: process.env.NODE_ENV === "production" ? "/chat" : undefined,
+  assetPrefix:
+    process.env.NODE_ENV === "production"
+      ? "https://darrellvalentino.com/chat"
+      : undefined,
 };
 
 export default config;
