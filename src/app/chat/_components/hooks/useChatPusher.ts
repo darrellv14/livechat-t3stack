@@ -113,13 +113,7 @@ export function useChatPusher({
 
     const handleNewMessage = (payload: MessageType & { clientId?: string }) => {
       lastEventRef.current = Date.now();
-      // Don't add our own messages again, they are handled optimistically
-      if (payload.userId === session.user.id) {
-        // We might still need to replace the temp message with the real one
-        // The `addMessageToCache` function can be adapted if needed, but for now, let's keep it simple
-        return;
-      }
-
+      // Always pass through cache updater. It will replace optimistic by clientId and dedup by id.
       addMessageToCache(utils, payload, chatRoomId);
       updateChatRoomsCache(utils, payload);
       onNewMessage();

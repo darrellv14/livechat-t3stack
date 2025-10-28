@@ -3,6 +3,14 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -29,8 +37,12 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [expanded, setExpanded] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const isCurrentUser = message.userId === session.user.id;
   const utils = api.useUtils();
+  const isTemporary =
+    typeof message.id === "string" &&
+    (message.id.startsWith("temp-") || message.id.startsWith("server-temp-"));
 
   const editMutation = api.chat.editMessage.useMutation({
     onSuccess: () => {
@@ -64,15 +76,13 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
   };
 
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this message?")) {
-      deleteMutation.mutate({ messageId: message.id });
-    }
+    setDeleteOpen(true);
   };
 
   const canEditOrDelete = () => {
     const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
     const created = new Date(message.createdAt as unknown as string | number | Date);
-    return created > oneMinuteAgo;
+    return created > oneMinuteAgo && !isTemporary;
   };
 
   const content = useMemo(() => {
@@ -212,11 +222,11 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setIsEditing(true)}>
+              <DropdownMenuItem onClick={() => setIsEditing(true)} disabled={isTemporary}>
                 <Edit2 className="mr-2 h-4 w-4" />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+              <DropdownMenuItem onClick={handleDelete} className="text-red-600" disabled={isTemporary}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
@@ -237,6 +247,36 @@ export function Message({ message, session, onMessageUpdated }: MessageProps) {
           </AvatarFallback>
         </Avatar>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete message?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The message will be permanently removed for everyone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                deleteMutation.mutate(
+                  { messageId: message.id },
+                  { onSuccess: () => setDeleteOpen(false) },
+                );
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
