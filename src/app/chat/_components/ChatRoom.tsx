@@ -264,7 +264,10 @@ export function ChatRoom({
         if (!rooms) return rooms;
         return rooms.map((room: ChatListRoomItem) => {
           if (room.id !== chatRoomId) return room;
-          const msgs = (Array.isArray(room.messages) ? room.messages : []) as ChatListMessage[];
+          const roomWithMsgs = room as Partial<{ messages?: ChatListMessage[] }>;
+          const msgs: ChatListMessage[] = Array.isArray(roomWithMsgs.messages)
+            ? roomWithMsgs.messages
+            : [];
           const last: ChatListMessage | undefined = msgs[0];
           if (!last || last.id !== payload.messageId) return room;
           return {
