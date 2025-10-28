@@ -178,9 +178,9 @@ export default async function AboutPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
-              <Link href="/api/auth/signin?callbackUrl=/room">
-                <Button size="lg">Sign in with Google</Button>
-              </Link>
+              <Button size="lg" onClick={() => signIn("google")}>
+                Sign in with Google
+              </Button>
             </CardContent>
           </Card>
         </section>
