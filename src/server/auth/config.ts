@@ -23,6 +23,9 @@ export const authConfig = {
   redirectProxyUrl: process.env.NODE_ENV === 'production' 
     ? 'https://livechat-t3stack.vercel.app/chat/api/auth'
     : undefined,
+  pages: {
+    signIn: '/chat',
+  },
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
