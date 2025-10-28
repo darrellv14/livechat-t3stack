@@ -58,12 +58,14 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     user: { id: string; name: string | null };
   };
 
-  const getChatName = (chat: ChatRoomItem): string => {
+  type ChatRoomView = ChatRoomItem & Partial<{ users: ChatUser[]; messages: ChatLastMsg[] }>;
+
+  const getChatName = (chat: ChatRoomView): string => {
     if (chat.isGroup) {
       return chat.name ?? "Group Chat";
     }
     // For DM, show the other user's name
-    const usersArr = (chat.users ?? []) as ChatUser[];
+    const usersArr: ChatUser[] = Array.isArray(chat.users) ? chat.users : [];
     let otherUser: ChatUser | undefined = undefined;
     for (const u of usersArr) {
       if (u?.id && u.id !== session?.user?.id) {
@@ -74,11 +76,11 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.name ?? "Unknown User";
   };
 
-  const getChatAvatar = (chat: ChatRoomItem): string | null => {
+  const getChatAvatar = (chat: ChatRoomView): string | null => {
     if (chat.isGroup) {
       return null;
     }
-    const usersArr = (chat.users ?? []) as ChatUser[];
+    const usersArr: ChatUser[] = Array.isArray(chat.users) ? chat.users : [];
     let otherUser: ChatUser | undefined = undefined;
     for (const u of usersArr) {
       if (u?.id && u.id !== session?.user?.id) {
@@ -89,8 +91,8 @@ export function ChatList({ selectedChatId, onSelectChat }: ChatListProps) {
     return otherUser?.image ?? null;
   };
 
-  const getLastMessage = (chat: ChatRoomItem): string => {
-    const msgs = (Array.isArray(chat.messages) ? chat.messages : []) as ChatLastMsg[];
+  const getLastMessage = (chat: ChatRoomView): string => {
+    const msgs: ChatLastMsg[] = Array.isArray(chat.messages) ? chat.messages : [];
     const lastMsg = msgs[0];
     if (!lastMsg) return "No messages yet";
     if (lastMsg.isDeleted) return "Message deleted";
