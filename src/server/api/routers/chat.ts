@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { pusher } from "@/server/pusher";
 
 export const chatRouter = createTRPCRouter({
   // Get all users for DM
@@ -154,6 +155,9 @@ export const chatRouter = createTRPCRouter({
         data: { updatedAt: new Date() },
       });
 
+      // Trigger Pusher event
+      await pusher.trigger(input.chatRoomId, "new-message", message);
+
       return message;
     }),
 
@@ -201,6 +205,9 @@ export const chatRouter = createTRPCRouter({
         },
       });
 
+      // Trigger Pusher event
+      await pusher.trigger(updatedMessage.chatRoomId, "edit-message", updatedMessage);
+
       return updatedMessage;
     }),
 
@@ -228,6 +235,9 @@ export const chatRouter = createTRPCRouter({
           message: "Cannot delete messages older than 1 minute",
         });
       }
+
+      // Trigger Pusher event before deleting
+      await pusher.trigger(message.chatRoomId, "delete-message", { messageId: input.messageId });
 
       await ctx.db.message.delete({
         where: { id: input.messageId },

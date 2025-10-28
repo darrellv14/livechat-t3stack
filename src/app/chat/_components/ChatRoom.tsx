@@ -7,8 +7,10 @@ import { api } from "@/trpc/react";
 import { ArrowLeft, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import Pusher from "pusher-js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Message } from "./Message";
+import { env } from "@/env";
 
 type MessageType = RouterOutputs["chat"]["getMessages"][number];
 
@@ -24,63 +26,21 @@ export function ChatRoom({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const utils = api.useUtils();
 
-  const { data: messages, refetch } = api.chat.getMessages.useQuery(
+  const { data: messages } = api.chat.getMessages.useQuery(
     { chatRoomId },
     {
       enabled: !!chatRoomId && !!session,
-      refetchInterval: 500, // Much faster polling - 500ms instead of 2000ms
-      refetchIntervalInBackground: true, // Keep refetching even when tab is not focused
+      // Disable polling now that we have WebSockets
+      refetchInterval: false,
+      refetchOnWindowFocus: false,
     },
   );
 
   const sendMessage = api.chat.sendMessage.useMutation({
-    // Optimistic update - update UI immediately before server responds
-    onMutate: async (newMessage) => {
-      // Cancel outgoing refetches
-      await utils.chat.getMessages.cancel({ chatRoomId });
-
-      // Snapshot previous value
-      const previousMessages = utils.chat.getMessages.getData({ chatRoomId });
-
-      // Optimistically update with new message
-      if (session?.user) {
-        utils.chat.getMessages.setData({ chatRoomId }, (old) => {
-          if (!old) return old;
-          return [
-            ...old,
-            {
-              id: `temp-${Date.now()}`, // Temporary ID
-              text: newMessage.text,
-              createdAt: new Date(),
-              chatRoomId: newMessage.chatRoomId,
-              userId: session.user.id,
-              user: {
-                id: session.user.id,
-                name: session.user.name ?? null,
-                email: session.user.email ?? null,
-                image: session.user.image ?? null,
-                emailVerified: null,
-              },
-            },
-          ] as typeof old;
-        });
-      }
-
-      return { previousMessages };
-    },
-    onError: (err, newMessage, context) => {
-      // Rollback on error
-      if (context?.previousMessages) {
-        utils.chat.getMessages.setData(
-          { chatRoomId },
-          context.previousMessages,
-        );
-      }
-    },
     onSuccess: () => {
-      // Refetch to get real message from server
-      void refetch();
+      // Clear input after successful send
       setText("");
+      // No need to refetch here, Pusher will handle it
     },
   });
 
@@ -91,6 +51,33 @@ export function ChatRoom({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Setup Pusher
+  useEffect(() => {
+    if (!chatRoomId || !env.NEXT_PUBLIC_PUSHER_KEY) {
+      return;
+    }
+
+    const pusher = new Pusher(env.NEXT_PUBLIC_PUSHER_KEY, {
+      cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
+    });
+
+    const channel = pusher.subscribe(chatRoomId);
+
+    const handleInvalidate = () => {
+      utils.chat.getMessages.invalidate({ chatRoomId });
+      utils.chat.getChatRooms.invalidate();
+    };
+
+    channel.bind("new-message", handleInvalidate);
+    channel.bind("edit-message", handleInvalidate);
+    channel.bind("delete-message", handleInvalidate);
+
+    return () => {
+      pusher.unsubscribe(chatRoomId);
+      pusher.disconnect();
+    };
+  }, [chatRoomId, utils]);
 
   const handleSendMessage = (e: FormEvent) => {
     e.preventDefault();
@@ -169,7 +156,7 @@ export function ChatRoom({
                 key={msg.id}
                 message={msg}
                 session={session}
-                onMessageUpdated={() => void refetch()}
+                onMessageUpdated={() => utils.chat.getMessages.invalidate({ chatRoomId })}
               />
             ))
           )}
