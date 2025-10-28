@@ -13,7 +13,17 @@ declare module "next-auth" {
 }
 
 export const authConfig = {
-  providers: [GoogleProvider],
+  providers: [
+    GoogleProvider({
+      clientId: process.env.AUTH_GOOGLE_ID!,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+      authorization: {
+        params: {
+          redirect_uri: "https://darrellvalentino.com/chat/api/auth/callback/google",
+        },
+      },
+    }),
+  ],
   adapter: PrismaAdapter(db),
   basePath: "/chat/api/auth",
   callbacks: {
