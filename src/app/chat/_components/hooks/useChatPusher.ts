@@ -55,6 +55,46 @@ const addMessageToCache = (
   );
 };
 
+// Update ChatList cache instantly without refetch for snappy sidebar
+const updateChatRoomsCache = (
+  utils: ReturnType<typeof api.useUtils>,
+  payload: MessageType,
+) => {
+  utils.chat.getChatRooms.setData(
+    undefined,
+    (rooms: RouterOutputs["chat"]["getChatRooms"] | undefined) => {
+      if (!rooms) return rooms;
+      let touched = false;
+      const updated = rooms.map((r) => {
+        if (r.id !== payload.chatRoomId) return r;
+        touched = true;
+        return {
+          ...r,
+          updatedAt: payload.createdAt,
+          messages: [
+            {
+              id: payload.id,
+              text: payload.text,
+              createdAt: payload.createdAt,
+              isDeleted: false,
+              user: {
+                id: payload.user.id,
+                name: payload.user.name,
+              },
+            },
+          ],
+        } as (typeof rooms)[number];
+      });
+      if (!touched) return rooms;
+      updated.sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+      return updated;
+    },
+  );
+};
+
 export function useChatPusher({
   chatRoomId,
   session,
@@ -81,10 +121,8 @@ export function useChatPusher({
       }
 
       addMessageToCache(utils, payload, chatRoomId);
+      updateChatRoomsCache(utils, payload);
       onNewMessage();
-
-      // Invalidate and update chat list to show new last message
-      void utils.chat.getChatRooms.invalidate();
     };
 
     const handleEditMessage = (payload: MessageType) => {
@@ -119,7 +157,7 @@ export function useChatPusher({
           };
         },
       );
-      void utils.chat.getChatRooms.invalidate();
+      // We skip invalidate here; ChatList is updated on its own via Pusher
     };
 
     channel.bind("new-message", handleNewMessage);
@@ -138,7 +176,7 @@ export function useChatPusher({
   // Light fallback: if no events for a while (e.g., socket hiccup), invalidate to refetch
   useEffect(() => {
     if (!chatRoomId) return;
-    const POLL_MS = 10000; // 10 seconds is a safe, light interval
+  const POLL_MS = 500; // 1s fallback per request
 
     const tick = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
