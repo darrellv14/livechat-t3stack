@@ -65,8 +65,8 @@ export function ChatRoom({
     const channel = pusher.subscribe(chatRoomId);
 
     const handleInvalidate = () => {
-      utils.chat.getMessages.invalidate({ chatRoomId });
-      utils.chat.getChatRooms.invalidate();
+      void utils.chat.getMessages.invalidate({ chatRoomId });
+      void utils.chat.getChatRooms.invalidate();
     };
 
     channel.bind("new-message", handleInvalidate);
@@ -156,7 +156,7 @@ export function ChatRoom({
                 key={msg.id}
                 message={msg}
                 session={session}
-                onMessageUpdated={() => utils.chat.getMessages.invalidate({ chatRoomId })}
+                onMessageUpdated={() => void utils.chat.getMessages.invalidate({ chatRoomId })}
               />
             ))
           )}
