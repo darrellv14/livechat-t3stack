@@ -20,6 +20,9 @@ export const authConfig = {
     }),
   ],
   adapter: PrismaAdapter(db),
+  redirectProxyUrl: process.env.NODE_ENV === 'production' 
+    ? 'https://livechat-t3stack.vercel.app/chat/api/auth'
+    : undefined,
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
